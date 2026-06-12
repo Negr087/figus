@@ -21,7 +21,7 @@ const SEEN_PATH = path.join(DIR, "seen.json");
 const STATE_PATH = path.join(DIR, "state.json");
 const OWNERSHIP_PATH = path.join(DIR, "ownership.json");
 
-export type OrderAction = "open-pack" | "open-pack-10" | "buy-sticker";
+export type OrderAction = "open-pack" | "open-pack-10" | "buy-sticker" | "tournament-register";
 
 export interface Order {
   paymentHash: string;

@@ -29,6 +29,7 @@ import { DevTools, DevModeFooter } from "@/components/DevTools";
 import { StickerPlacementFX, RevealSummaryModal, type RevealResult } from "@/components/StickerPlacementFX";
 import { LangProvider, useLang } from "@/contexts/LangContext";
 import type { Listing, Page } from "@/lib/types";
+import { Tournament } from "@/components/Tournament";
 
 type Tab = "album" | "packs" | "market" | "fixture" | "game";
 
@@ -1115,53 +1116,8 @@ function HomeInner() {
                     <Leaderboard myPubkey={pubkey} onChallenge={challengeFromLeaderboard} />
 
                     {/* ── TORNEO ── */}
-                    <div style={{
-                      borderTop: "1px solid var(--line)",
-                      paddingTop: 24,
-                    }}>
-                      <div style={{
-                        background: "linear-gradient(135deg, rgba(232,185,35,.06) 0%, rgba(245,158,11,.03) 100%)",
-                        border: "1px solid rgba(232,185,35,.2)",
-                        borderRadius: 14,
-                        padding: "20px 18px",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 16,
-                      }}>
-                        <div style={{ fontSize: 36, lineHeight: 1 }}>🏆</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{
-                            fontFamily: "var(--display)",
-                            fontSize: 17,
-                            color: "var(--gold)",
-                            letterSpacing: 0.5,
-                            marginBottom: 4,
-                          }}>
-                            {t.tournament_title}
-                          </div>
-                          <div style={{
-                            fontSize: 12,
-                            color: "var(--muted)",
-                            lineHeight: 1.4,
-                          }}>
-                            {t.tournament_desc}
-                          </div>
-                        </div>
-                        <div style={{
-                          fontFamily: "var(--condensed)",
-                          fontWeight: 900,
-                          fontSize: 10,
-                          letterSpacing: 1.5,
-                          color: "var(--gold)",
-                          background: "rgba(232,185,35,.12)",
-                          border: "1px solid rgba(232,185,35,.3)",
-                          borderRadius: 99,
-                          padding: "5px 10px",
-                          whiteSpace: "nowrap",
-                        }}>
-                          {t.tournament_soon}
-                        </div>
-                      </div>
+                    <div style={{ borderTop: "1px solid var(--line)", paddingTop: 24 }}>
+                      <Tournament identity={identity} />
                     </div>
                   </>
                 )}

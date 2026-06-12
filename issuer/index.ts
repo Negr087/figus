@@ -12,6 +12,7 @@ import {
 import { handleBetLock, handleBetCancel, loadBetState, settleBetsForMatch, payLnAddress, getLud16 } from "./bets";
 import { startFootballPoller } from "./football";
 import { getPayments } from "./payments";
+import { getTournament, resetTournament, isRegistered, registerPlayer, ENTRY_SATS } from "./tournament";
 import { listenNwcPayments } from "../src/lib/nwc-server";
 import {
   getOrder, putOrder, updateOrder, pendingOrders, pruneOrders,
@@ -191,8 +192,15 @@ async function handleOrderRequest(ev: Event) {
 
   const action = tag(ev, "figus-action") as OrderAction | undefined;
   const buyer = ev.pubkey;
-  if (action !== "open-pack" && action !== "open-pack-10" && action !== "buy-sticker") {
+  if (action !== "open-pack" && action !== "open-pack-10" && action !== "buy-sticker" && action !== "tournament-register") {
     return console.log("⚠️ order request con acción desconocida:", action);
+  }
+
+  if (action === "tournament-register") {
+    const t = getTournament();
+    if (t.status !== "registering") return console.log("⚠️ torneo no está en inscripción");
+    if (isRegistered(buyer)) return console.log("⚠️ ya inscripto:", buyer.slice(0, 8));
+    if (t.registrations.length >= t.maxPlayers) return console.log("⚠️ torneo lleno");
   }
 
   let amountSats: number;
@@ -211,8 +219,10 @@ async function handleOrderRequest(ev: Event) {
     seller = listing.seller;
     stickerNum = listing.num;
     if (amountSats <= 0) return console.log("⚠️ precio de listing inválido");
+  } else if (action === "tournament-register") {
+    amountSats = ENTRY_SATS;
   } else {
-    amountSats = PACK_PRICE[action];
+    amountSats = PACK_PRICE[action as keyof typeof PACK_PRICE];
   }
 
   let invoice: string, paymentHash: string;
@@ -290,8 +300,14 @@ async function fulfillOrderInner(order: Order, trustedSats?: number) {
 
   if (order.action === "buy-sticker") {
     await settleBuySticker(order);
+  } else if (order.action === "tournament-register") {
+    const ownedData = getOwnershipForPubkey(order.buyer);
+    const ownedUnique = Object.values(ownedData).filter(c => c > 0).length;
+    const result = registerPlayer(order.buyer, ownedUnique);
+    updateOrder(paymentHash, { status: result.ok ? "granted" : "failed" });
+    console.log(`🏆 registro torneo ${order.buyer.slice(0, 8)}…: ${result.ok ? "ok" : result.error}`);
   } else {
-    const drawn = await handleOpenPack(order.buyer, PACK_COUNT[order.action]);
+    const drawn = await handleOpenPack(order.buyer, PACK_COUNT[order.action as keyof typeof PACK_COUNT]);
     updateOrder(paymentHash, { status: "granted", stickers: drawn });
   }
 }
@@ -702,6 +718,20 @@ function readBody(req: http.IncomingMessage): Promise<string> {
           res.writeHead(200); res.end('{"ok":true}');
           return;
         }
+      }
+
+      // GET /tournament
+      if (url === "/tournament" && method === "GET") {
+        res.writeHead(200);
+        res.end(JSON.stringify(getTournament()));
+        return;
+      }
+
+      // POST /tournament/reset  (admin: fuerza un torneo nuevo)
+      if (url === "/tournament/reset" && method === "POST") {
+        resetTournament();
+        res.writeHead(200); res.end('{"ok":true}');
+        return;
       }
 
       res.writeHead(404); res.end('{"error":"Not found"}');
