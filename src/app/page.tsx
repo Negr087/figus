@@ -584,6 +584,32 @@ function HomeInner() {
     }
   }
 
+  // --- venta masiva: publica múltiples listings de una vez ---
+  async function listManyForSale(items: { num: number; price: number }[]) {
+    if (!identity || items.length === 0) return;
+    notify(`⏳ Firmando ${items.length} publicaciones…`);
+    const events: Awaited<ReturnType<typeof signEvent>>[] = [];
+    for (const { num, price } of items) {
+      const template: EventTemplate = {
+        kind: KIND.LISTING,
+        created_at: Math.floor(Date.now() / 1000),
+        content: `Vendo #${num} repetida, ${price} sats`,
+        tags: [
+          ["d", `sell:${num}`],
+          ["sticker", `${ALBUM_ID}:${num}`],
+          ["a", addr(KIND.STICKER, ISSUER_PUBKEY, `${ALBUM_ID}:${num}`)],
+          ["price", String(price)],
+          ["status", "open"],
+          ["p", ISSUER_PUBKEY],
+        ],
+      };
+      events.push(await signEvent(template, identity.mode));
+    }
+    await Promise.allSettled(events.map(ev => Promise.any(getPool().publish(getRelays(), ev))));
+    notify(`✅ ${items.length} figuritas publicadas en el mercadito`);
+    setTimeout(refresh, 800);
+  }
+
   // --- cancelar venta: republica el listing con status "closed" ---
   async function cancelAllListings(listings: Listing[]) {
     if (!identity || listings.length === 0) return;
@@ -1053,7 +1079,7 @@ function HomeInner() {
                     onOpen: isDev ? openFreePackDev : openFreePack,
                   }}
                 />
-                <MyStickers ownership={ownership} onSell={listForSale} myListings={listings.filter(l => l.seller === pubkey)} />
+                <MyStickers ownership={ownership} onSell={listForSale} onSellMany={listManyForSale} myListings={listings.filter(l => l.seller === pubkey)} />
               </div>
             )}
             {visitedTabs.has("fixture") && (

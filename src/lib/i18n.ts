@@ -132,6 +132,11 @@ const T = {
     my_listed:  "✓ EN VENTA",
     my_empty_dupes: "Sin repetidas por ahora · ¡seguí abriendo sobres!",
     my_empty_all:   "Todavía no tenés figuritas",
+    my_tab_bulk:       "EN MASA",
+    my_bulk_empty:     "No tenés repetidas sin listar",
+    my_bulk_publish:   "PUBLICAR TODAS",
+    my_bulk_signing:   "Firmando…",
+    my_bulk_stickers:  "figus",
 
     // Sticker zoom
     zoom_in_album: "En tu álbum",
@@ -508,6 +513,11 @@ const T = {
     my_listed:  "✓ LISTED",
     my_empty_dupes: "No duplicates yet · keep opening packs!",
     my_empty_all:   "You don't have any stickers yet",
+    my_tab_bulk:       "BULK SELL",
+    my_bulk_empty:     "No unlisted duplicates",
+    my_bulk_publish:   "PUBLISH ALL",
+    my_bulk_signing:   "Signing…",
+    my_bulk_stickers:  "stickers",
 
     // Sticker zoom
     zoom_in_album: "In your album",
