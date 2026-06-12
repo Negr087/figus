@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 const ISSUER_API_URL    = process.env.ISSUER_API_URL;
 const ISSUER_API_SECRET = process.env.ISSUER_API_SECRET;
 
