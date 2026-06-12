@@ -31,8 +31,7 @@ interface TournamentData {
 const short = (pk: string) => pk.slice(0, 8) + "…";
 
 function KickStrip({ kicks, player }: { kicks: KickResult[]; player: 1 | 2 }) {
-  const mine = kicks.filter(k => k.player === player && k.phase !== "golden" as any);
-  // Regular kicks (first 10 = 5 per player)
+  // Regular kicks (first 10 = 5 per player, golden kick excluded via slice)
   const regular = kicks.filter(k => k.player === player).slice(0, 5);
   return (
     <span style={{ letterSpacing: 2, fontSize: 14 }}>
