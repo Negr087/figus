@@ -178,7 +178,7 @@ export function MyStickers({
                         flexShrink: 0,
                       }}
                     >
-                      ⚡ {nums.length}
+                      ⚡ PUBLICAR {nums.length}
                     </button>
                   </div>
                 );
