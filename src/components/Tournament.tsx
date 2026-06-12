@@ -2,7 +2,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { requestOrderInvoice, tryPayInvoice } from "@/lib/order";
+import { list } from "@/lib/pool";
 import type { Identity } from "@/lib/identity";
+
+interface NostrProfile { name: string; picture: string; }
 
 // ── Types (mirror issuer/tournament.ts) ───────────────────────────────────────
 
@@ -30,72 +33,86 @@ interface TournamentData {
 
 const short = (pk: string) => pk.slice(0, 8) + "…";
 
+function Avatar({ pubkey, profiles, size = 24 }: { pubkey: string; profiles: Map<string, NostrProfile>; size?: number }) {
+  const p = profiles.get(pubkey);
+  const name = p?.name || short(pubkey);
+  return p?.picture ? (
+    <img src={p.picture} alt={name} width={size} height={size}
+      style={{ borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: "1.5px solid var(--line)" }}
+      onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+    />
+  ) : (
+    <div style={{
+      width: size, height: size, borderRadius: "50%", flexShrink: 0,
+      background: "var(--panel2)", border: "1.5px solid var(--line)",
+      display: "grid", placeItems: "center",
+      fontSize: size * 0.45, color: "var(--muted)", fontWeight: 900, fontFamily: "var(--condensed)",
+    }}>
+      {name[0]?.toUpperCase() || "?"}
+    </div>
+  );
+}
+
+function PlayerName({ pubkey, profiles }: { pubkey: string; profiles: Map<string, NostrProfile> }) {
+  const p = profiles.get(pubkey);
+  return <>{p?.name || short(pubkey)}</>;
+}
+
 function KickStrip({ kicks, player }: { kicks: KickResult[]; player: 1 | 2 }) {
-  // Regular kicks (first 10 = 5 per player, golden kick excluded via slice)
   const regular = kicks.filter(k => k.player === player).slice(0, 5);
   return (
     <span style={{ letterSpacing: 2, fontSize: 14 }}>
       {regular.map((k, i) => (
-        <span key={i} title={k.goal ? "Gol" : "Atajado"}>
-          {k.goal ? "⚽" : "❌"}
-        </span>
+        <span key={i} title={k.goal ? "Gol" : "Atajado"}>{k.goal ? "⚽" : "❌"}</span>
       ))}
     </span>
   );
 }
 
-function MatchCard({ match, expanded, onToggle }: { match: Match; expanded: boolean; onToggle: () => void }) {
-  const goldenKick = match.kicks.slice(10);
-  const hasGolden = goldenKick.length > 0;
-
+function MatchCard({ match, profiles, expanded, onToggle }: { match: Match; profiles: Map<string, NostrProfile>; expanded: boolean; onToggle: () => void }) {
+  const hasGolden = match.kicks.length > 10;
   return (
-    <div style={{
-      background: "rgba(255,255,255,.03)", borderRadius: 8,
-      border: "1px solid rgba(255,255,255,.08)", overflow: "hidden",
-    }}>
-      <button
-        onClick={onToggle}
-        style={{
-          width: "100%", background: "none", border: "none", padding: "10px 14px",
-          display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
-          color: "var(--ink)", fontFamily: "var(--condensed)",
-        }}
-      >
-        <span style={{ flex: 1, textAlign: "left", fontSize: 11, color: "var(--muted)" }}>
-          {short(match.player1)}
-        </span>
+    <div style={{ background: "rgba(255,255,255,.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,.08)", overflow: "hidden" }}>
+      <button onClick={onToggle} style={{ width: "100%", background: "none", border: "none", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", color: "var(--ink)", fontFamily: "var(--condensed)" }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6 }}>
+          <Avatar pubkey={match.player1} profiles={profiles} size={20} />
+          <span style={{ fontSize: 11, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 80 }}>
+            <PlayerName pubkey={match.player1} profiles={profiles} />
+          </span>
+        </div>
         <span style={{ fontWeight: 900, fontSize: 15, color: "var(--gold)", minWidth: 40, textAlign: "center" }}>
           {match.score1} – {match.score2}
         </span>
-        <span style={{ flex: 1, textAlign: "right", fontSize: 11, color: "var(--muted)" }}>
-          {short(match.player2)}
-        </span>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+          <span style={{ fontSize: 11, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 80 }}>
+            <PlayerName pubkey={match.player2} profiles={profiles} />
+          </span>
+          <Avatar pubkey={match.player2} profiles={profiles} size={20} />
+        </div>
         <span style={{ fontSize: 10, color: "var(--muted)", marginLeft: 6 }}>{expanded ? "▲" : "▼"}</span>
       </button>
-
       {expanded && (
         <div style={{ padding: "8px 14px 12px", borderTop: "1px solid rgba(255,255,255,.06)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 10, color: "var(--muted)", width: 72, overflow: "hidden", textOverflow: "ellipsis" }}>
-              {short(match.player1)}
-            </span>
-            <KickStrip kicks={match.kicks} player={1} />
-            <span style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 13, color: match.winner === match.player1 ? "var(--gold)" : "var(--muted)", marginLeft: "auto" }}>
-              {match.score1}
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: hasGolden ? 6 : 0 }}>
-            <span style={{ fontSize: 10, color: "var(--muted)", width: 72, overflow: "hidden", textOverflow: "ellipsis" }}>
-              {short(match.player2)}
-            </span>
-            <KickStrip kicks={match.kicks} player={2} />
-            <span style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 13, color: match.winner === match.player2 ? "var(--gold)" : "var(--muted)", marginLeft: "auto" }}>
-              {match.score2}
-            </span>
-          </div>
+          {([1, 2] as const).map(p => {
+            const pk = p === 1 ? match.player1 : match.player2;
+            const score = p === 1 ? match.score1 : match.score2;
+            const won = match.winner === pk;
+            return (
+              <div key={p} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Avatar pubkey={pk} profiles={profiles} size={18} />
+                <span style={{ fontSize: 10, color: "var(--muted)", width: 64, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <PlayerName pubkey={pk} profiles={profiles} />
+                </span>
+                <KickStrip kicks={match.kicks} player={p} />
+                <span style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 13, color: won ? "var(--gold)" : "var(--muted)", marginLeft: "auto" }}>
+                  {score}
+                </span>
+              </div>
+            );
+          })}
           {hasGolden && (
-            <div style={{ fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", marginTop: 6, fontStyle: "italic" }}>
-              Golden kick → ganó {short(match.winner)}
+            <div style={{ fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", marginTop: 4, fontStyle: "italic" }}>
+              Golden kick → ganó <PlayerName pubkey={match.winner} profiles={profiles} />
             </div>
           )}
         </div>
@@ -104,14 +121,14 @@ function MatchCard({ match, expanded, onToggle }: { match: Match; expanded: bool
   );
 }
 
-function StandingsTable({ standings, group }: { standings: Standing[]; group: string }) {
+function StandingsTable({ standings, group, profiles }: { standings: Standing[]; group: string; profiles: Map<string, NostrProfile> }) {
   const medals = ["🥇", "🥈", "  ", "  "];
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, letterSpacing: 1, color: "var(--gold)", marginBottom: 8 }}>
         GRUPO {group}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "4px 12px", fontSize: 11, fontFamily: "var(--condensed)" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "5px 12px", fontSize: 11, fontFamily: "var(--condensed)", alignItems: "center" }}>
         <span style={{ color: "var(--muted)", fontWeight: 700 }}>Jugador</span>
         <span style={{ color: "var(--muted)", fontWeight: 700, textAlign: "right" }}>GF</span>
         <span style={{ color: "var(--muted)", fontWeight: 700, textAlign: "right" }}>GC</span>
@@ -119,14 +136,16 @@ function StandingsTable({ standings, group }: { standings: Standing[]; group: st
         <span style={{ color: "var(--muted)", fontWeight: 700, textAlign: "right" }}>Pts</span>
         {standings.map((s, i) => (
           <>
-            <span key={s.pubkey + "n"} style={{ color: i < 2 ? "var(--ink)" : "var(--muted)", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {medals[i]} {short(s.pubkey)}
-            </span>
+            <div key={s.pubkey + "n"} style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+              <span style={{ fontSize: 13 }}>{medals[i]}</span>
+              <Avatar pubkey={s.pubkey} profiles={profiles} size={22} />
+              <span style={{ color: i < 2 ? "var(--ink)" : "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <PlayerName pubkey={s.pubkey} profiles={profiles} />
+              </span>
+            </div>
             <span key={s.pubkey + "gf"} style={{ textAlign: "right", color: "var(--muted)" }}>{s.gf}</span>
             <span key={s.pubkey + "ga"} style={{ textAlign: "right", color: "var(--muted)" }}>{s.ga}</span>
-            <span key={s.pubkey + "gd"} style={{ textAlign: "right", color: s.gd >= 0 ? "#4ade80" : "#f87171" }}>
-              {s.gd > 0 ? "+" : ""}{s.gd}
-            </span>
+            <span key={s.pubkey + "gd"} style={{ textAlign: "right", color: s.gd >= 0 ? "#4ade80" : "#f87171" }}>{s.gd > 0 ? "+" : ""}{s.gd}</span>
             <span key={s.pubkey + "pts"} style={{ textAlign: "right", fontWeight: 900, color: i < 2 ? "var(--gold)" : "var(--muted)" }}>{s.pts}</span>
           </>
         ))}
@@ -139,20 +158,41 @@ function StandingsTable({ standings, group }: { standings: Standing[]; group: st
 
 export function Tournament({ identity }: { identity: Identity | null }) {
   const [data,       setData]       = useState<TournamentData | null>(null);
+  const [profiles,   setProfiles]   = useState<Map<string, NostrProfile>>(new Map());
   const [loading,    setLoading]    = useState(true);
   const [busy,       setBusy]       = useState(false);
   const [error,      setError]      = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [tab,        setTab]        = useState<"groups" | "bracket" | "matches">("groups");
 
+  const fetchProfiles = useCallback(async (pubkeys: string[]) => {
+    if (!pubkeys.length) return;
+    try {
+      const evs = await list([{ kinds: [0], authors: pubkeys }]);
+      const map = new Map<string, NostrProfile>();
+      for (const ev of evs as { pubkey: string; content: string }[]) {
+        try {
+          const m = JSON.parse(ev.content);
+          map.set(ev.pubkey, { name: m.display_name || m.name || "", picture: m.picture || "" });
+        } catch {}
+      }
+      setProfiles(map);
+    } catch {}
+  }, []);
+
   const fetchTournament = useCallback(async () => {
     try {
       const r = await fetch("/api/tournament");
-      if (r.ok) { setData(await r.json()); setError(null); }
-      else setError("No se pudo cargar el torneo");
+      if (r.ok) {
+        const t: TournamentData = await r.json();
+        setData(t);
+        setError(null);
+        const pubkeys = t.registrations.map(r => r.pubkey);
+        if (pubkeys.length) fetchProfiles(pubkeys);
+      } else setError("No se pudo cargar el torneo");
     } catch { setError("No se pudo cargar el torneo"); }
     finally { setLoading(false); }
-  }, []);
+  }, [fetchProfiles]);
 
   useEffect(() => {
     fetchTournament();
@@ -273,9 +313,11 @@ export function Tournament({ identity }: { identity: Identity | null }) {
           <div style={{
             background: "rgba(232,185,35,.15)", border: "1px solid rgba(232,185,35,.4)",
             borderRadius: 10, padding: "10px 14px", marginTop: 4,
+            display: "flex", alignItems: "center", gap: 10,
             fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 13, color: "var(--gold)", letterSpacing: 0.5,
           }}>
-            🥇 CAMPEÓN: {short(data.champion)}
+            <Avatar pubkey={data.champion} profiles={profiles} size={28} />
+            🥇 CAMPEÓN: <PlayerName pubkey={data.champion} profiles={profiles} />
             {data.champion === myPubkey && " · ¡Sos vos! 🎉"}
           </div>
         )}
@@ -284,17 +326,22 @@ export function Tournament({ identity }: { identity: Identity | null }) {
       {/* ── Registered players list ───────────────────────────────── */}
       {data.status === "registering" && data.registrations.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {data.registrations.map(r => (
-            <div key={r.pubkey} style={{
-              background: r.pubkey === myPubkey ? "rgba(74,222,128,.15)" : "rgba(255,255,255,.04)",
-              border: `1px solid ${r.pubkey === myPubkey ? "rgba(74,222,128,.4)" : "rgba(255,255,255,.1)"}`,
-              borderRadius: 99, padding: "3px 10px",
-              fontSize: 10, fontFamily: "var(--condensed)", fontWeight: 700,
-              color: r.pubkey === myPubkey ? "#4ade80" : "var(--muted)",
-            }}>
-              {short(r.pubkey)}
-            </div>
-          ))}
+          {data.registrations.map(r => {
+            const isMe = r.pubkey === myPubkey;
+            return (
+              <div key={r.pubkey} style={{
+                background: isMe ? "rgba(74,222,128,.15)" : "rgba(255,255,255,.04)",
+                border: `1px solid ${isMe ? "rgba(74,222,128,.4)" : "rgba(255,255,255,.1)"}`,
+                borderRadius: 99, padding: "4px 10px 4px 6px",
+                fontSize: 11, fontFamily: "var(--condensed)", fontWeight: 700,
+                color: isMe ? "#4ade80" : "var(--muted)",
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                <Avatar pubkey={r.pubkey} profiles={profiles} size={20} />
+                <PlayerName pubkey={r.pubkey} profiles={profiles} />
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -320,8 +367,8 @@ export function Tournament({ identity }: { identity: Identity | null }) {
           {/* Groups tab */}
           {tab === "groups" && (
             <div>
-              <StandingsTable standings={data.standings.A} group="A" />
-              <StandingsTable standings={data.standings.B} group="B" />
+              <StandingsTable standings={data.standings.A} group="A" profiles={profiles} />
+              <StandingsTable standings={data.standings.B} group="B" profiles={profiles} />
             </div>
           )}
 
@@ -333,15 +380,15 @@ export function Tournament({ identity }: { identity: Identity | null }) {
                   SEMIFINALES
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <MatchCard match={data.semi1} expanded={expandedId === "semi1"} onToggle={() => setExpandedId(v => v === "semi1" ? null : "semi1")} />
-                  <MatchCard match={data.semi2} expanded={expandedId === "semi2"} onToggle={() => setExpandedId(v => v === "semi2" ? null : "semi2")} />
+                  <MatchCard match={data.semi1} profiles={profiles} expanded={expandedId === "semi1"} onToggle={() => setExpandedId(v => v === "semi1" ? null : "semi1")} />
+                  <MatchCard match={data.semi2} profiles={profiles} expanded={expandedId === "semi2"} onToggle={() => setExpandedId(v => v === "semi2" ? null : "semi2")} />
                 </div>
               </div>
               <div>
                 <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--gold)", marginBottom: 8 }}>
                   FINAL
                 </div>
-                <MatchCard match={data.final} expanded={expandedId === "final"} onToggle={() => setExpandedId(v => v === "final" ? null : "final")} />
+                <MatchCard match={data.final} profiles={profiles} expanded={expandedId === "final"} onToggle={() => setExpandedId(v => v === "final" ? null : "final")} />
               </div>
             </div>
           )}
@@ -356,7 +403,7 @@ export function Tournament({ identity }: { identity: Identity | null }) {
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {data.matches.filter(m => m.group === g).map(m => (
-                      <MatchCard key={m.id} match={m} expanded={expandedId === m.id} onToggle={() => setExpandedId(v => v === m.id ? null : m.id)} />
+                      <MatchCard key={m.id} match={m} profiles={profiles} expanded={expandedId === m.id} onToggle={() => setExpandedId(v => v === m.id ? null : m.id)} />
                     ))}
                   </div>
                 </div>
