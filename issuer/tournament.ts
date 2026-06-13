@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { sha256 } from "@noble/hashes/sha256";
-import { bytesToHex } from "@noble/hashes/utils";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { ALL_NUMBERS } from "../src/lib/catalog";
 import { publish, issuerPubkey, now } from "./lib";
 
