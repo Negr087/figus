@@ -106,7 +106,7 @@ function MatchCard({
   onToggle: () => void;
 }) {
   const isComplete = match.status === "complete" || match.status === "timeout";
-  const isSuddenDeath = match.kicks.length > 10;
+  const isSuddenDeath = match.kicks.length > 6;
   return (
     <div style={{ background: "rgba(255,255,255,.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,.08)", overflow: "hidden" }}>
       <button onClick={onToggle} style={{ width: "100%", background: "none", border: "none", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", color: "var(--ink)", fontFamily: "var(--condensed)" }}>

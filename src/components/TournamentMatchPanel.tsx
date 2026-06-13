@@ -255,7 +255,7 @@ export function TournamentMatchPanel({
             ? `COMPLETADO · Ganó ${winnerName}`
             : isSuddenDeath
             ? "MUERTE SÚBITA"
-            : `RONDA ${Math.min(currentRound, 10)}/10`}
+            : `RONDA ${Math.min(currentRound, 6)}/6`}
         </div>
       </div>
 

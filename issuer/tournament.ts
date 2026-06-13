@@ -7,9 +7,9 @@ import { publish, issuerPubkey, now } from "./lib";
 
 const TOURNAMENT_PATH = path.join(process.cwd(), "data", "tournament.json");
 const MAX_PLAYERS   = 8;
-const TOTAL_ROUNDS  = 10; // 5 kicks per player, alternating
+const TOTAL_ROUNDS  = 6;  // 3 kicks per player, alternating
 export const ENTRY_SATS  = 5;
-export const TIMEOUT_S   = 30 * 60; // 30 minutes per action
+export const TIMEOUT_S   = 10 * 60; // 10 minutes per action
 
 const TOURNEY_MATCH_KIND = 30305;
 
