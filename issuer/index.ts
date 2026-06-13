@@ -198,9 +198,21 @@ async function handleOrderRequest(ev: Event) {
 
   if (action === "tournament-register") {
     const t = getTournament();
-    if (t.status !== "registering") return console.log("⚠️ torneo no está en inscripción");
-    if (isRegistered(buyer)) return console.log("⚠️ ya inscripto:", buyer.slice(0, 8));
-    if (t.registrations.length >= t.maxPlayers) return console.log("⚠️ torneo lleno");
+    const rejectReason =
+      t.status !== "registering" ? "El torneo ya comenzó" :
+      isRegistered(buyer)        ? "Ya estás inscripto en este torneo" :
+      t.registrations.length >= t.maxPlayers ? "El torneo está lleno" :
+      null;
+    if (rejectReason) {
+      console.log(`⚠️ torneo-register rechazado (${buyer.slice(0, 8)}): ${rejectReason}`);
+      await publish({
+        kind: KIND.ORDER_INVOICE,
+        created_at: now(),
+        content: "",
+        tags: [["p", buyer], ["e", ev.id], ["figus-action", action], ["error", rejectReason]],
+      });
+      return;
+    }
   }
 
   let amountSats: number;

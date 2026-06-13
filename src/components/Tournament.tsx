@@ -220,6 +220,16 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
     if (!identity || busy) return;
     setBusy(true);
     try {
+      // Fetch fresh data to catch already-registered state before hitting issuer
+      const check = await fetch("/api/tournament");
+      if (check.ok) {
+        const fresh: TournamentData = await check.json();
+        setData(fresh);
+        if (fresh.registrations.some(r => r.pubkey === identity.pubkey)) return;
+        if (fresh.status !== "registering") { setError("El torneo ya comenzó"); return; }
+        if (fresh.registrations.length >= fresh.maxPlayers) { setError("El torneo está lleno"); return; }
+      }
+
       const { invoice, amountSats } = await requestOrderInvoice({
         action: "tournament-register" as any,
         signerMode: identity.mode,

@@ -45,6 +45,13 @@ export async function requestOrderInvoice(opts: {
     const unsub = subscribe(
       [{ kinds: [KIND.ORDER_INVOICE], authors: [ISSUER_PUBKEY], "#e": [signed.id] }],
       (ev: Event) => {
+        const errorMsg = ev.tags.find((t) => t[0] === "error")?.[1];
+        if (errorMsg) {
+          clearTimeout(timeout);
+          unsub();
+          reject(new Error(errorMsg));
+          return;
+        }
         const invoice = ev.tags.find((t) => t[0] === "bolt11")?.[1];
         const paymentHash = ev.tags.find((t) => t[0] === "payment_hash")?.[1];
         const amountSats = Number(ev.tags.find((t) => t[0] === "amount")?.[1] ?? "0");
