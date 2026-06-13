@@ -1117,7 +1117,7 @@ function HomeInner() {
 
                     {/* ── TORNEO ── */}
                     <div style={{ borderTop: "1px solid var(--line)", paddingTop: 24 }}>
-                      <Tournament identity={identity} />
+                      <Tournament identity={identity} notify={notify} />
                     </div>
                   </>
                 )}

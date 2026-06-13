@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { requestOrderInvoice, tryPayInvoice } from "@/lib/order";
 import { list } from "@/lib/pool";
 import type { Identity } from "@/lib/identity";
+import { InvoiceModal } from "./InvoiceModal";
 
 interface NostrProfile { name: string; picture: string; }
 
@@ -156,14 +157,16 @@ function StandingsTable({ standings, group, profiles }: { standings: Standing[];
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function Tournament({ identity }: { identity: Identity | null }) {
-  const [data,       setData]       = useState<TournamentData | null>(null);
-  const [profiles,   setProfiles]   = useState<Map<string, NostrProfile>>(new Map());
-  const [loading,    setLoading]    = useState(true);
-  const [busy,       setBusy]       = useState(false);
-  const [error,      setError]      = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [tab,        setTab]        = useState<"groups" | "bracket" | "matches">("groups");
+export function Tournament({ identity, notify = () => {} }: { identity: Identity | null; notify?: (msg: string) => void }) {
+  const [data,           setData]           = useState<TournamentData | null>(null);
+  const [profiles,       setProfiles]       = useState<Map<string, NostrProfile>>(new Map());
+  const [loading,        setLoading]        = useState(true);
+  const [busy,           setBusy]           = useState(false);
+  const [error,          setError]          = useState<string | null>(null);
+  const [expandedId,     setExpandedId]     = useState<string | null>(null);
+  const [tab,            setTab]            = useState<"groups" | "bracket" | "matches">("groups");
+  const [pendingInvoice, setPendingInvoice] = useState<string | null>(null);
+  const [pendingAmount,  setPendingAmount]  = useState<number>(0);
 
   const fetchProfiles = useCallback(async (pubkeys: string[]) => {
     if (!pubkeys.length) return;
@@ -200,26 +203,35 @@ export function Tournament({ identity }: { identity: Identity | null }) {
     return () => clearInterval(iv);
   }, [fetchTournament]);
 
+  async function pollForRegistration() {
+    if (!identity) return;
+    for (let i = 0; i < 12; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const r = await fetch("/api/tournament");
+      if (r.ok) {
+        const t: TournamentData = await r.json();
+        setData(t);
+        if (t.registrations.some(reg => reg.pubkey === identity.pubkey)) break;
+      }
+    }
+  }
+
   async function handleRegister() {
     if (!identity || busy) return;
     setBusy(true);
     try {
-      const { invoice } = await requestOrderInvoice({
+      const { invoice, amountSats } = await requestOrderInvoice({
         action: "tournament-register" as any,
         signerMode: identity.mode,
       });
       const paid = await tryPayInvoice(invoice);
-      if (!paid) { setError("No se pudo procesar el pago"); return; }
-      // Poll until our pubkey appears in registrations
-      for (let i = 0; i < 12; i++) {
-        await new Promise(r => setTimeout(r, 3000));
-        const r = await fetch("/api/tournament");
-        if (r.ok) {
-          const t: TournamentData = await r.json();
-          setData(t);
-          if (t.registrations.some(reg => reg.pubkey === identity.pubkey)) break;
-        }
+      if (!paid) {
+        // No auto-payment available — show QR modal so player can pay manually
+        setPendingInvoice(invoice);
+        setPendingAmount(amountSats || data?.entrySats || 5);
+        return;
       }
+      await pollForRegistration();
     } catch (e: any) {
       setError(e?.message ?? "Error al inscribirse");
     } finally {
@@ -417,6 +429,20 @@ export function Tournament({ identity }: { identity: Identity | null }) {
         <div style={{ fontSize: 11, color: "#f87171", fontFamily: "var(--condensed)", textAlign: "center" }}>
           {error}
         </div>
+      )}
+
+      {pendingInvoice && (
+        <InvoiceModal
+          invoice={pendingInvoice}
+          amountSats={pendingAmount}
+          onClose={() => setPendingInvoice(null)}
+          onNwcPaid={() => {
+            setPendingInvoice(null);
+            setBusy(false);
+            pollForRegistration();
+          }}
+          notify={notify}
+        />
       )}
     </div>
   );
