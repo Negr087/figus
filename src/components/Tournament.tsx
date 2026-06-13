@@ -244,6 +244,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
       await pollForRegistration();
     } catch (e: any) {
       setError(e?.message ?? "Error al inscribirse");
+      fetchTournament(); // refresh so UI reflects current registration state
     } finally {
       setBusy(false);
     }

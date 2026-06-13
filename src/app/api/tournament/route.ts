@@ -13,6 +13,7 @@ export async function GET() {
     const r = await fetch(`${ISSUER_API_URL}/tournament`, {
       headers: { Authorization: `Bearer ${ISSUER_API_SECRET}` },
       signal: AbortSignal.timeout(8000),
+      cache: "no-store",
     });
     const data = await r.json();
     return NextResponse.json(data, { status: r.status });
