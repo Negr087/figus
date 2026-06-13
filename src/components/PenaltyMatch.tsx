@@ -39,7 +39,7 @@ async function fetchNostrMeta(pubkey: string): Promise<{ name?: string; picture?
 
 // ─── Aim grid: el pateador elige zona ─────────────────────────────────────────
 
-function AimGrid({ onKick, disabled }: { onKick: (zone: number) => void; disabled: boolean }) {
+export function AimGrid({ onKick, disabled }: { onKick: (zone: number) => void; disabled: boolean }) {
   const [hover, setHover] = useState<number | null>(null);
   const { t } = useLang();
   const labels = [t.pm_left, t.pm_center, t.pm_right];
@@ -77,7 +77,7 @@ function AimGrid({ onKick, disabled }: { onKick: (zone: number) => void; disable
 
 // ─── Keeper grid: el arquero elige columna ─────────────────────────────────────
 
-function KeeperGrid({ onBlock, disabled }: { onBlock: (col: number) => void; disabled: boolean }) {
+export function KeeperGrid({ onBlock, disabled }: { onBlock: (col: number) => void; disabled: boolean }) {
   const [hover, setHover] = useState<number | null>(null);
   const { t } = useLang();
   const labels = [t.pm_left, t.pm_center, t.pm_right];

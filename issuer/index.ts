@@ -12,7 +12,7 @@ import {
 import { handleBetLock, handleBetCancel, loadBetState, settleBetsForMatch, payLnAddress, getLud16 } from "./bets";
 import { startFootballPoller } from "./football";
 import { getPayments } from "./payments";
-import { getTournament, viewTournament, resetTournament, isRegistered, registerPlayer, ENTRY_SATS } from "./tournament";
+import { getTournament, viewTournament, resetTournament, isRegistered, registerPlayer, processCommit, processBlock, processReveal, timeoutStaleMatches, ENTRY_SATS } from "./tournament";
 import { listenNwcPayments } from "../src/lib/nwc-server";
 import {
   getOrder, putOrder, updateOrder, pendingOrders, pruneOrders,
@@ -38,6 +38,7 @@ const KIND = {
   PENALTY_REVEAL: 1578,
   STEAL_CLAIM:    1580,
   BET_CANCEL:     1593,
+  TOURNEY_MATCH:  30305,
 };
 
 // Precios de los sobres (sats). Verificados al cobrar la factura propia.
@@ -315,7 +316,7 @@ async function fulfillOrderInner(order: Order, trustedSats?: number) {
   } else if (order.action === "tournament-register") {
     const ownedData = getOwnershipForPubkey(order.buyer);
     const ownedUnique = Object.values(ownedData).filter(c => c > 0).length;
-    const result = registerPlayer(order.buyer, ownedUnique);
+    const result = await registerPlayer(order.buyer, ownedUnique);
     updateOrder(paymentHash, { status: result.ok ? "granted" : "failed" });
     console.log(`🏆 registro torneo ${order.buyer.slice(0, 8)}…: ${result.ok ? "ok" : result.error}`);
   } else {
@@ -550,6 +551,38 @@ async function handleStealClaim(ev: Event) {
   console.log(`🃏 steal: figu #${stolen} de ${loser.slice(0, 8)}… → ${winner.slice(0, 8)}…`);
 }
 
+// ── Torneo interactivo: penales por Nostr ─────────────────────────────────────
+
+async function handleTourneyKick(ev: Event) {
+  if (!verifyEvent(ev)) return;
+  const matchCoord = tag(ev, "a");
+  if (!matchCoord || !matchCoord.startsWith("30305:")) return; // not a tourney kick
+
+  if (wasProcessed("tourney-kick", ev.id)) return;
+  markProcessed("tourney-kick", ev.id);
+
+  if (ev.kind === KIND.PENALTY_COMMIT) {
+    const commitHash = ev.tags.find(t => t[0] === "commit")?.[1];
+    if (!commitHash) return console.log("⚠️ tourney commit sin hash");
+    const result = processCommit(matchCoord, ev.id, commitHash, ev.pubkey);
+    console.log(`⚽ tourney commit ${matchCoord.split(":")[3]}… ronda ${ev.tags.find(t => t[0] === "round")?.[1]}: ${result.ok ? "ok" : result.error}`);
+
+  } else if (ev.kind === KIND.PENALTY_BLOCK) {
+    const commitId = ev.tags.find(t => t[0] === "e")?.[1];
+    const colStr   = ev.tags.find(t => t[0] === "col")?.[1];
+    if (!commitId || colStr === undefined) return console.log("⚠️ tourney block incompleto");
+    const result = processBlock(matchCoord, commitId, Number(colStr), ev.pubkey);
+    console.log(`🧤 tourney block ${matchCoord.split(":")[3]} col=${colStr}: ${result.ok ? "ok" : result.error}`);
+
+  } else if (ev.kind === KIND.PENALTY_REVEAL) {
+    const zoneStr = ev.tags.find(t => t[0] === "zone")?.[1];
+    const nonce   = ev.tags.find(t => t[0] === "nonce")?.[1];
+    if (zoneStr === undefined || !nonce) return console.log("⚠️ tourney reveal incompleto");
+    const result = await processReveal(matchCoord, Number(zoneStr), nonce, ev.pubkey);
+    console.log(`🎯 tourney reveal ${matchCoord.split(":")[3]}: ${result.ok ? "ok" : result.error}`);
+  }
+}
+
 async function main() {
   acquireProcessLock(); // un solo issuer por data/ — dos a la vez duplican grants
   console.log("⚡ Issuer Figus");
@@ -641,6 +674,11 @@ async function main() {
   // Receipts de zap (solo bet-lock): el watermark reemplaza al viejo bloque de
   // recovery manual de 30 min — la suscripción ya backfillea desde donde quedó.
   subscribeStream("zap-receipts", [KIND.ZAP_RECEIPT], onReceipt, 30 * 60);
+  // Penales del torneo interactivo: commit/block/reveal con tag ["tourney", ...]
+  subscribeStream("tourney-kicks", [KIND.PENALTY_COMMIT, KIND.PENALTY_BLOCK, KIND.PENALTY_REVEAL], handleTourneyKick, 24 * 3600);
+
+  // Timeout de partidos del torneo: verifica cada 60s si algún jugador superó 30 min
+  setInterval(() => { timeoutStaleMatches().catch(console.error); }, 60_000);
 
   // Watchdog: renueva las suscripciones cada 5 min. SimplePool no re-suscribe
   // cuando un relay corta la conexión — sin esto el stream muere en silencio
