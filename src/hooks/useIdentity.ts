@@ -21,12 +21,21 @@ export function useIdentity() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setNip07Available(hasNip07());
+
+    // Extensions inject window.nostr with a small delay — poll until found
+    const pollNip07 = (attempts = 0) => {
+      if (hasNip07()) {
+        setNip07Available(true);
+      } else if (attempts < 15) {
+        setTimeout(() => pollNip07(attempts + 1), 200);
+      }
+    };
+    pollNip07();
 
     const mode = getPersistedMode();
 
     if (mode === "nip07") {
-      // Las extensiones NIP-07 a veces inyectan window.nostr con un pequeño delay
+      // Re-uses the same polling window — if extension is slow, wait for it before auto-login
       const tryNip07 = async (attempts = 0) => {
         if (hasNip07()) {
           try {
