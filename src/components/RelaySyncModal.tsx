@@ -143,6 +143,15 @@ export function RelaySyncModal({ pubkey, onClose }: { pubkey: string; onClose: (
 
   useEffect(() => () => { cancelRef.current.cancelled = true; }, []);
 
+  // Auto-start full sync on mount so the user doesn't need to press a button
+  const didAutoRun = useRef(false);
+  useEffect(() => {
+    if (didAutoRun.current) return;
+    didAutoRun.current = true;
+    run("full");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleAdd(url?: string) {
     const added = addExtraRelay(url ?? input);
     if (!added) { setInputError(true); return; }
