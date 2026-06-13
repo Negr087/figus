@@ -12,7 +12,7 @@ import {
 import { handleBetLock, handleBetCancel, loadBetState, settleBetsForMatch, payLnAddress, getLud16 } from "./bets";
 import { startFootballPoller } from "./football";
 import { getPayments } from "./payments";
-import { getTournament, resetTournament, isRegistered, registerPlayer, ENTRY_SATS } from "./tournament";
+import { getTournament, viewTournament, resetTournament, isRegistered, registerPlayer, ENTRY_SATS } from "./tournament";
 import { listenNwcPayments } from "../src/lib/nwc-server";
 import {
   getOrder, putOrder, updateOrder, pendingOrders, pruneOrders,
@@ -735,7 +735,9 @@ function readBody(req: http.IncomingMessage): Promise<string> {
       // GET /tournament
       if (url === "/tournament" && method === "GET") {
         res.writeHead(200);
-        res.end(JSON.stringify(getTournament()));
+        // viewTournament reads from disk without auto-creating a new one,
+        // so a finished tournament's results remain visible until the next registration.
+        res.end(JSON.stringify(viewTournament() ?? { status: "none" }));
         return;
       }
 

@@ -10,7 +10,7 @@ interface NostrProfile { name: string; picture: string; }
 
 // ── Types (mirror issuer/tournament.ts) ───────────────────────────────────────
 
-type TournamentStatus = "registering" | "group_stage" | "finished";
+type TournamentStatus = "registering" | "group_stage" | "finished" | "none";
 
 interface Registration { pubkey: string; registeredAt: number; strength: number; }
 interface KickResult { player: 1 | 2; goal: boolean; }
@@ -188,9 +188,14 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
       const r = await fetch("/api/tournament");
       if (r.ok) {
         const t: TournamentData = await r.json();
-        setData(t);
+        // "none" means no tournament exists yet — treat as a fresh registering state
+        if (t.status === "none") {
+          setData({ ...t, status: "registering", maxPlayers: 8, entrySats: 5, prizePool: 0, registrations: [], groups: null, matches: [], standings: null, semi1: null, semi2: null, final: null, champion: null });
+        } else {
+          setData(t);
+        }
         setError(null);
-        const pubkeys = t.registrations.map(r => r.pubkey);
+        const pubkeys = (t.registrations ?? []).map(r => r.pubkey);
         if (pubkeys.length) fetchProfiles(pubkeys);
       } else setError("No se pudo cargar el torneo");
     } catch { setError("No se pudo cargar el torneo"); }

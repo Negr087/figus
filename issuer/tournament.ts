@@ -106,10 +106,15 @@ export function resetTournament(): Tournament {
   return createFreshTournament();
 }
 
+// Read-only view: returns whatever is on disk (finished or not). Use for GET /tournament.
+export function viewTournament(): Tournament | null {
+  return readTournament();
+}
+
+// For registration flow: auto-creates a fresh tournament if none exists or previous finished.
 export function getTournament(): Tournament {
   const t = readTournament();
   if (!t) return createFreshTournament();
-  // Auto-create new tournament if previous finished
   if (t.status === "finished") return createFreshTournament();
   return t;
 }
