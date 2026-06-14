@@ -31,11 +31,12 @@ function isLocalClaimed(pubkey: string): boolean {
 }
 
 function mergeOwn(nostr: Ownership, local: Ownership): Ownership {
-  // Server is authoritative for stickers it has records for.
-  // Local is kept only for pending optimistic adds not yet confirmed by server.
+  // Take the maximum per sticker: relay might serve a stale/older event.
+  // Sales are tracked separately via subtractSales, so taking max is always safe.
   const result: Ownership = { ...local };
   for (const k of Object.keys(nostr)) {
-    result[Number(k)] = nostr[Number(k)];
+    const n = Number(k);
+    result[n] = Math.max(result[n] ?? 0, nostr[n]);
   }
   return result;
 }
@@ -168,9 +169,8 @@ export function useGameState(pubkey: string | null) {
           }
           soldCounts.current = counts;
           const merged = mergeOwn(parseOwnership(ownEvents.current), readLocalOwn(pubkey));
-          const final = subtractSales(merged, counts);
-          writeLocalOwn(pubkey, final);
-          setOwnership(final);
+          writeLocalOwn(pubkey, merged);
+          setOwnership(subtractSales(merged, counts));
         }
       }
 
@@ -255,9 +255,8 @@ export function useGameState(pubkey: string | null) {
     ]));
     ownEvents.current = owns;
     const merged = mergeOwn(parseOwnership(owns), readLocalOwn(pubkey));
-    const final = subtractSales(merged, soldCounts.current);
-    writeLocalOwn(pubkey, final);
-    setOwnership(final);
+    writeLocalOwn(pubkey, merged);
+    setOwnership(subtractSales(merged, soldCounts.current));
   }, [pubkey]);
 
   const claimPack = useCallback((nums: number[]) => {
