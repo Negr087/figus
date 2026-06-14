@@ -168,8 +168,9 @@ export function useGameState(pubkey: string | null) {
           }
           soldCounts.current = counts;
           const merged = mergeOwn(parseOwnership(ownEvents.current), readLocalOwn(pubkey));
-          writeLocalOwn(pubkey, merged);
-          setOwnership(subtractSales(merged, counts));
+          const final = subtractSales(merged, counts);
+          writeLocalOwn(pubkey, final);
+          setOwnership(final);
         }
       }
 
@@ -254,8 +255,9 @@ export function useGameState(pubkey: string | null) {
     ]));
     ownEvents.current = owns;
     const merged = mergeOwn(parseOwnership(owns), readLocalOwn(pubkey));
-    writeLocalOwn(pubkey, merged);
-    setOwnership(subtractSales(merged, soldCounts.current));
+    const final = subtractSales(merged, soldCounts.current);
+    writeLocalOwn(pubkey, final);
+    setOwnership(final);
   }, [pubkey]);
 
   const claimPack = useCallback((nums: number[]) => {
