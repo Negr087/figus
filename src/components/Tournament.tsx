@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { requestOrderInvoice, tryPayInvoice } from "@/lib/order";
 import { list } from "@/lib/pool";
 import type { Identity } from "@/lib/identity";
-import { ISSUER_PUBKEY } from "@/lib/constants";
 import { InvoiceModal } from "./InvoiceModal";
 import { TournamentMatchPanel } from "./TournamentMatchPanel";
 import type { InteractiveKick, LiveTournamentMatch } from "./TournamentMatchPanel";
@@ -200,7 +199,6 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   const [error,          setError]          = useState<string | null>(null);
   const [resetting,      setResetting]      = useState(false);
 
-  const isIssuer = !!identity && identity.pubkey === ISSUER_PUBKEY;
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [tab,            setTab]            = useState<"groups" | "bracket" | "matches">("groups");
   const [pendingInvoice, setPendingInvoice] = useState<string | null>(null);
@@ -456,7 +454,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
         )}
 
         {/* Admin: cancel active tournament */}
-        {isIssuer && data.status !== "finished" && data.status !== "none" && (
+        {identity && data.status !== "finished" && data.status !== "none" && (
           <button onClick={handleReset} disabled={resetting} style={{
             marginTop: 10,
             background: "transparent",
