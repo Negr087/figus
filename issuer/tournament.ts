@@ -68,6 +68,7 @@ export interface Tournament {
   id: string;
   status: TournamentStatus;
   createdAt: number;
+  creatorPubkey: string | null;  // first player to register
   maxPlayers: number;
   entrySats: number;
   prizePool: number;
@@ -100,6 +101,7 @@ function createFreshTournament(): Tournament {
     id: Date.now().toString(36),
     status: "registering",
     createdAt: Math.floor(Date.now() / 1000),
+    creatorPubkey: null,
     maxPlayers: MAX_PLAYERS,
     entrySats: ENTRY_SATS,
     prizePool: 0,
@@ -142,6 +144,7 @@ export async function registerPlayer(pubkey: string, ownedUnique: number): Promi
   if (t.registrations.length >= MAX_PLAYERS) return { ok: false, error: "El torneo está lleno" };
 
   const strength = Math.min(1, ownedUnique / ALL_NUMBERS.length);
+  if (!t.creatorPubkey) t.creatorPubkey = pubkey;
   t.registrations.push({ pubkey, registeredAt: now(), strength });
   t.prizePool += ENTRY_SATS;
 

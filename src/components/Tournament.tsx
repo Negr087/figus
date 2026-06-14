@@ -45,6 +45,7 @@ interface Standing {
 interface TournamentData {
   id: string;
   status: TournamentStatus;
+  creatorPubkey: string | null;
   maxPlayers: number;
   entrySats: number;
   prizePool: number;
@@ -231,7 +232,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
       if (r.ok) {
         const t: TournamentData = await r.json();
         if (t.status === "none") {
-          setData({ ...t, status: "registering", maxPlayers: 8, entrySats: 5, prizePool: 0, registrations: [], groups: null, matches: [], standings: null, champion: null });
+          setData({ ...t, status: "registering", creatorPubkey: null, maxPlayers: 8, entrySats: 5, prizePool: 0, registrations: [], groups: null, matches: [], standings: null, champion: null });
         } else {
           setData(t);
         }
@@ -276,7 +277,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   }
 
   async function handleReset() {
-    if (!isIssuer || resetting) return;
+    if (!identity || resetting) return;
     if (!window.confirm("¿Finalizar y cancelar el torneo actual? Esta acción no se puede deshacer.")) return;
     setResetting(true);
     setError(null);
@@ -453,8 +454,8 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
           </button>
         )}
 
-        {/* Admin: cancel active tournament */}
-        {identity && data.status !== "finished" && data.status !== "none" && (
+        {/* Creator: cancel active tournament */}
+        {identity && data.creatorPubkey === identity.pubkey && data.status !== "finished" && data.status !== "none" && (
           <button onClick={handleReset} disabled={resetting} style={{
             marginTop: 10,
             background: "transparent",
