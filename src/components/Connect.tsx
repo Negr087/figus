@@ -7,6 +7,8 @@ import { useProfile } from "@/hooks/useProfile";
 import { useLang } from "@/contexts/LangContext";
 
 type NcView = "menu" | "qr" | "bunker" | "connecting";
+type Tab = "nostr" | "email";
+type EmailState = "idle" | "sending" | "sent" | "error";
 
 export function Connect({
   identity,
@@ -35,7 +37,11 @@ export function Connect({
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
+  const [tab, setTab] = useState<Tab>("nostr");
   const [ncView, setNcView] = useState<NcView>("menu");
+  const [email, setEmail] = useState("");
+  const [emailState, setEmailState] = useState<EmailState>("idle");
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [qrUri, setQrUri] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [qrExpiresAt, setQrExpiresAt] = useState<number | null>(null);
@@ -74,6 +80,7 @@ export function Connect({
     abortRef.current?.abort();
     abortRef.current = null;
     setShowModal(false);
+    setTab("nostr");
     setNcView("menu");
     setQrUri(null);
     setQrDataUrl(null);
@@ -81,6 +88,40 @@ export function Connect({
     setBunkerUrl("");
     setNcError(null);
     setAuthUrl(null);
+    setEmail("");
+    setEmailState("idle");
+    setEmailError(null);
+  }
+
+  function switchTab(t: Tab) {
+    setTab(t);
+    setNcView("menu");
+    setNcError(null);
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setQrUri(null);
+    setQrDataUrl(null);
+  }
+
+  async function handleEmailLogin(e: React.FormEvent) {
+    e.preventDefault();
+    const normalized = email.trim().toLowerCase();
+    if (!normalized || emailState === "sending") return;
+    setEmailState("sending");
+    setEmailError(null);
+    try {
+      const res = await fetch("/api/auth/email/request", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: normalized }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "No se pudo enviar el enlace.");
+      setEmailState("sent");
+    } catch (err) {
+      setEmailState("error");
+      setEmailError(err instanceof Error ? err.message : "No se pudo enviar el enlace.");
+    }
   }
 
   async function startQR() {
@@ -342,14 +383,32 @@ export function Connect({
                     ← Volver
                   </button>
                 ) : (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 18 }}>🔐</span>
-                    <span style={{
-                      fontFamily: "var(--condensed)", fontWeight: 900,
-                      fontSize: 15, letterSpacing: 0.5, color: "var(--ink)",
-                    }}>
-                      NOSTR CONNECT
-                    </span>
+                  <div style={{ display: "flex", gap: 3, background: "rgba(255,255,255,.05)", borderRadius: 10, padding: 3 }}>
+                    {(["nostr", "email"] as Tab[]).map((t) => {
+                      const active = tab === t;
+                      return (
+                        <button
+                          key={t}
+                          onClick={() => switchTab(t)}
+                          style={{
+                            flex: 1, padding: "6px 14px", border: "none", cursor: "pointer",
+                            borderRadius: 8, fontFamily: "var(--condensed)", fontWeight: 900,
+                            fontSize: 12, letterSpacing: 0.5,
+                            background: active
+                              ? (t === "nostr" ? "rgba(140,82,255,0.3)" : "rgba(232,185,35,0.2)")
+                              : "transparent",
+                            color: active
+                              ? (t === "nostr" ? "rgb(200,160,255)" : "var(--gold)")
+                              : "var(--muted)",
+                            outline: active
+                              ? `1px solid ${t === "nostr" ? "rgba(140,82,255,0.5)" : "rgba(232,185,35,0.4)"}`
+                              : "none",
+                          }}
+                        >
+                          {t === "nostr" ? "🔐 NOSTR" : "✉ CORREO"}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -368,8 +427,87 @@ export function Connect({
               {/* ── SCROLLABLE BODY ── */}
               <div className="nc-modal-body">
 
+                {/* EMAIL */}
+                {ncView === "menu" && tab === "email" && (
+                  <form onSubmit={handleEmailLogin} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    <p style={{ fontSize: 13, color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
+                      Ingresá tu correo y te mandamos un enlace mágico.
+                      Al abrirlo entrás automáticamente con una clave temporal.
+                    </p>
+                    <div>
+                      <label style={{
+                        display: "block", fontSize: 11, fontWeight: 700,
+                        color: "var(--muted)", fontFamily: "var(--condensed)",
+                        letterSpacing: 0.5, marginBottom: 6,
+                      }}>
+                        CORREO ELECTRÓNICO
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="vos@ejemplo.com"
+                        disabled={emailState === "sending" || emailState === "sent"}
+                        style={{
+                          width: "100%", padding: "11px 14px",
+                          background: "rgba(255,255,255,0.03)",
+                          border: "1px solid var(--line)",
+                          borderRadius: 10, color: "var(--ink)",
+                          fontSize: 14, boxSizing: "border-box",
+                          outline: "none",
+                        }}
+                        onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(232,185,35,0.6)")}
+                        onBlur={(e) => (e.currentTarget.style.borderColor = "var(--line)")}
+                      />
+                    </div>
+
+                    {emailState === "sent" && (
+                      <div style={{
+                        padding: "12px 14px",
+                        background: "rgba(50,200,100,0.1)",
+                        border: "1px solid rgba(50,200,100,0.35)",
+                        borderRadius: 10, fontSize: 13, color: "#6dde9e",
+                        lineHeight: 1.5,
+                      }}>
+                        ✅ Revisá tu correo. El enlace expira en 15 minutos.
+                      </div>
+                    )}
+
+                    {emailState === "error" && emailError && (
+                      <ErrorBox msg={emailError} />
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={emailState === "sending" || !email.trim()}
+                      style={{
+                        padding: "13px 16px",
+                        background: emailState === "sent"
+                          ? "rgba(50,200,100,0.15)"
+                          : "linear-gradient(135deg,rgba(232,185,35,0.8),rgba(200,140,20,0.8))",
+                        border: emailState === "sent"
+                          ? "1px solid rgba(50,200,100,0.4)"
+                          : "1px solid rgba(232,185,35,0.7)",
+                        borderRadius: 10,
+                        color: emailState === "sent" ? "#6dde9e" : "#030b18",
+                        fontWeight: 900, fontSize: 14,
+                        fontFamily: "var(--condensed)", letterSpacing: 0.5,
+                        cursor: (emailState === "sending" || !email.trim()) ? "not-allowed" : "pointer",
+                        opacity: (emailState === "sending" || !email.trim()) ? 0.5 : 1,
+                      }}
+                    >
+                      {emailState === "sending"
+                        ? "ENVIANDO…"
+                        : emailState === "sent"
+                        ? "REENVIAR ENLACE →"
+                        : "ENVIAR ENLACE MÁGICO →"}
+                    </button>
+                  </form>
+                )}
+
                 {/* MENU */}
-                {ncView === "menu" && (
+                {ncView === "menu" && tab === "nostr" && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                     <p style={{ fontSize: 13, color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
                       Usá tu firmante Nostr desde el celular sin exponer tu clave.
@@ -702,7 +840,9 @@ export function Connect({
                   fontSize: 10, color: "var(--muted)",
                   fontFamily: "var(--condensed)", letterSpacing: 0.5,
                 }}>
-                  NIP-46 · TU CLAVE PRIVADA NUNCA SALE DE TU DISPOSITIVO
+                  {tab === "email" && ncView === "menu"
+                    ? "AL INGRESAR ACEPTÁS NUESTROS TÉRMINOS · TU CLAVE QUEDA EN ESTE DISPOSITIVO"
+                    : "NIP-46 · TU CLAVE PRIVADA NUNCA SALE DE TU DISPOSITIVO"}
                 </span>
               </div>
             </div>
