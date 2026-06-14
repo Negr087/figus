@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { requestOrderInvoice, tryPayInvoice } from "@/lib/order";
 import { list } from "@/lib/pool";
 import type { Identity } from "@/lib/identity";
+import { ISSUER_PUBKEY } from "@/lib/constants";
 import { InvoiceModal } from "./InvoiceModal";
 import { TournamentMatchPanel } from "./TournamentMatchPanel";
 import type { InteractiveKick, LiveTournamentMatch } from "./TournamentMatchPanel";
@@ -197,6 +198,9 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   const [loading,        setLoading]        = useState(true);
   const [busy,           setBusy]           = useState(false);
   const [error,          setError]          = useState<string | null>(null);
+  const [resetting,      setResetting]      = useState(false);
+
+  const isIssuer = !!identity && identity.pubkey === ISSUER_PUBKEY;
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [tab,            setTab]            = useState<"groups" | "bracket" | "matches">("groups");
   const [pendingInvoice, setPendingInvoice] = useState<string | null>(null);
@@ -270,6 +274,26 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
         setData(t);
         if (t.status === "registering" && t.registrations.some(reg => reg.pubkey === identity.pubkey)) break;
       }
+    }
+  }
+
+  async function handleReset() {
+    if (!isIssuer || resetting) return;
+    if (!window.confirm("¿Finalizar y cancelar el torneo actual? Esta acción no se puede deshacer.")) return;
+    setResetting(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/tournament", { method: "DELETE" });
+      if (!r.ok) {
+        const d = await r.json() as { error?: string };
+        setError(d.error ?? "No se pudo cancelar el torneo");
+      } else {
+        await fetchTournament();
+      }
+    } catch {
+      setError("No se pudo conectar con el servidor");
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -428,6 +452,21 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
             cursor: busy ? "default" : "pointer",
           }}>
             {busy ? "Procesando…" : "⚽ INSCRIBIRSE A NUEVO TORNEO"}
+          </button>
+        )}
+
+        {/* Admin: cancel active tournament */}
+        {isIssuer && data.status !== "finished" && data.status !== "none" && (
+          <button onClick={handleReset} disabled={resetting} style={{
+            marginTop: 10,
+            background: "transparent",
+            color: resetting ? "var(--muted)" : "rgba(255,80,80,.7)",
+            border: "1px solid rgba(255,80,80,.25)",
+            padding: "7px 14px", borderRadius: 8,
+            fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 0.5,
+            cursor: resetting ? "default" : "pointer",
+          }}>
+            {resetting ? "Cancelando…" : "✕ FINALIZAR TORNEO"}
           </button>
         )}
       </div>
