@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { requestOrderInvoice, tryPayInvoice } from "@/lib/order";
 import { list } from "@/lib/pool";
 import type { Identity } from "@/lib/identity";
+import { sendDM, dmTournamentStart } from "@/lib/dm";
 import { InvoiceModal } from "./InvoiceModal";
 import { TournamentMatchPanel } from "./TournamentMatchPanel";
 import type { InteractiveKick, LiveTournamentMatch } from "./TournamentMatchPanel";
@@ -208,6 +209,25 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   // Keep a ref to the latest data for use in callbacks without re-creating intervals
   const dataRef = useRef<TournamentData | null>(null);
   dataRef.current = data;
+
+  // Track previous status to detect tournament start transition
+  const prevStatus = useRef<TournamentStatus | null>(null);
+  useEffect(() => {
+    if (!data || !identity) { prevStatus.current = data?.status ?? null; return; }
+    const prev = prevStatus.current;
+    prevStatus.current = data.status;
+    if (prev === "registering" && data.status === "group_stage") {
+      const flagKey = `figus_tournament_notified_${data.id}`;
+      try { if (localStorage.getItem(flagKey)) return; localStorage.setItem(flagKey, "1"); } catch {}
+      const msg = dmTournamentStart();
+      data.registrations
+        .map(r => r.pubkey)
+        .filter(pk => pk !== identity.pubkey)
+        .forEach(pk => sendDM(identity, pk, msg).catch(() => {}));
+      notify("📨 Notificaciones de inicio enviadas");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.status, data?.id]);
 
   const myPubkey = identity?.pubkey ?? "";
 

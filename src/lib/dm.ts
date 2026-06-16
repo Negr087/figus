@@ -28,3 +28,7 @@ export function dmNewChallenge(challengerPubkey: string): string {
 export function dmYourTurn(): string {
   return `⚽ ¡Es tu turno de patear en la tanda de penales!\n\nEntrá a jugar: ${SITE_URL}#game`;
 }
+
+export function dmTournamentStart(): string {
+  return `🏆 ¡El Torneo de Penales arrancó!\n\nYa podés ver tus partidos de zona y jugar tu primera tanda. Entrá ahora: ${SITE_URL}#tournament`;
+}

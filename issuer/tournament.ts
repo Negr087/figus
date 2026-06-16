@@ -8,8 +8,9 @@ import { publish, issuerPubkey, now } from "./lib";
 const TOURNAMENT_PATH = path.join(process.cwd(), "data", "tournament.json");
 const MAX_PLAYERS   = 8;
 const TOTAL_ROUNDS  = 6;  // 3 kicks per player, alternating
-export const ENTRY_SATS  = 5;
-export const TIMEOUT_S   = 10 * 60; // 10 minutes per action
+export const ENTRY_SATS       = 5;
+export const KICKER_TIMEOUT_S = 3 * 60; // 3 min — waiting_commit / waiting_reveal
+export const KEEPER_TIMEOUT_S = 3 * 60; // 3 min — waiting_block (goalkeeper absent → gol)
 
 const TOURNEY_MATCH_KIND = 30305;
 
@@ -32,6 +33,7 @@ export interface InteractiveKick {
   col: number | null;
   goal: boolean;
   timedOut: boolean;
+  absentPlayer?: string; // pubkey of who failed to act (set on timeout kicks only)
 }
 
 export interface TournamentMatch {
@@ -179,7 +181,7 @@ function makeMatch(id: string, phase: TournamentMatch["phase"], group: Group | u
     actionPhase: "waiting_commit",
     currentKicker: player1,       // player1 kicks first (round 1, odd)
     currentGoalkeeper: player2,
-    lastActionAt: null,
+    lastActionAt: now(),           // clock starts on creation so pending matches time out
     pendingCommitEventId: null,
     pendingCommitHash: null,
     pendingBlockCol: null,
@@ -359,44 +361,109 @@ function advanceMatchRound(match: TournamentMatch): void {
 }
 
 // ── Timeout enforcement (call every 60s) ──────────────────────────────────────
+//
+// Timeout rules:
+//   waiting_commit / waiting_reveal  (kicker absent)  → 5 min → SAVE (goal=false)
+//   waiting_block                    (keeper absent)   → 10 min → GOL  (goal=true)
+//
+// "Both absent" detection:
+//   If every kick so far was a commit/reveal-timeout AND the last two had
+//   different absent players (A then B, meaning neither committed), the match
+//   is unresolvable — pick a random winner so the tournament can advance.
+//
+// Pending matches:
+//   lastActionAt is now set on match creation so even matches nobody started
+//   will time out after KICKER_TIMEOUT_S.
 
 export async function timeoutStaleMatches(): Promise<void> {
   const t = readTournament();
   if (!t || t.status === "registering" || t.status === "finished") return;
 
   let changed = false;
-  const deadline = now() - TIMEOUT_S;
 
   for (const match of t.matches) {
-    if (match.status !== "active" && match.status !== "pending") continue;
-    // "pending" with no action yet: start countdown only once someone has acted
-    if (match.status === "pending") continue;
-    if (match.lastActionAt === null || match.lastActionAt > deadline) continue;
+    if (match.status === "complete" || match.status === "timeout") continue;
+    if (match.actionPhase === null) continue;
 
-    // Timeout: current kicker forfeits remaining kicks (counted as saves)
-    console.log(`⏰ Timeout en ${match.id} ronda ${match.currentRound} — forfeit de ${match.currentKicker?.slice(0, 8)}`);
-    while (match.actionPhase !== null) {
-      const kick: InteractiveKick = {
-        round: match.currentRound,
-        kicker: match.currentKicker!,
-        goalkeeper: match.currentGoalkeeper!,
-        zone: null, col: null, goal: false, timedOut: true,
+    // Initialise clock for legacy pending matches saved without lastActionAt
+    if (match.lastActionAt === null) {
+      match.lastActionAt = now();
+      changed = true;
+      continue; // will be evaluated on the next 60s tick
+    }
+
+    const timeoutS = match.actionPhase === "waiting_block" ? KEEPER_TIMEOUT_S : KICKER_TIMEOUT_S;
+    if (now() - match.lastActionAt < timeoutS) continue;
+
+    const phase    = match.actionPhase;
+    const roundLog = match.currentRound;
+
+    let kick: InteractiveKick;
+
+    if (phase === "waiting_block") {
+      // Goalkeeper didn't move in time → GOL for the kicker
+      kick = {
+        round:        match.currentRound,
+        kicker:       match.currentKicker!,
+        goalkeeper:   match.currentGoalkeeper!,
+        zone: 1, col: 2,            // different values → goal=true
+        goal: true, timedOut: true,
+        absentPlayer: match.currentGoalkeeper!,
       };
       match.kicks.push(kick);
-      advanceMatchRound(match);
-      if (match.status === "complete") break;
-      // Only timeout one kick per check; the other player can then act
-      // Actually, timeout all remaining for the forfeited player's turn
-      // to keep the match moving. We stop after 1 kick then let normal flow resume.
-      break;
+      if (kick.kicker === match.player1) match.score1 += 1;
+      else                               match.score2 += 1;
+    } else {
+      // Kicker didn't commit or reveal → SAVE
+      kick = {
+        round:        match.currentRound,
+        kicker:       match.currentKicker!,
+        goalkeeper:   match.currentGoalkeeper!,
+        zone: null, col: null,
+        goal: false, timedOut: true,
+        absentPlayer: match.currentKicker!,
+      };
+      match.kicks.push(kick);
     }
+
+    // Clear any pending handshake state
+    match.pendingCommitEventId = null;
+    match.pendingCommitHash    = null;
+    match.pendingBlockCol      = null;
+    if (match.status === "pending") match.status = "active";
+    match.lastActionAt = now();
+
+    // ── Both-absent detection ──────────────────────────────────────────────
+    // Condition: every kick so far was a kicker-absent timeout (absentPlayer===kicker),
+    // AND the last two absent players are different (one round A, one round B).
+    // This means neither player has ever committed — pick a random winner.
+    const allKickerAbsent = match.kicks.every(
+      k => k.timedOut && k.absentPlayer === k.kicker,
+    );
+    const lastTwo = match.kicks.slice(-2);
+    const bothAbsent =
+      allKickerAbsent &&
+      lastTwo.length === 2 &&
+      lastTwo[0].absentPlayer !== lastTwo[1].absentPlayer;
+
+    if (bothAbsent) {
+      match.winner      = Math.random() < 0.5 ? match.player1 : match.player2;
+      match.status      = "complete";
+      match.actionPhase = null;
+      match.completedAt = now();
+      console.log(`⏰ Ambos ausentes en ${match.id} — ganador aleatorio: ${match.winner.slice(0, 8)}…`);
+    } else {
+      advanceMatchRound(match);
+    }
+
+    console.log(`⏰ Timeout ${phase} en ${match.id} ronda ${roundLog} — ${kick.goal ? "GOL" : "SAVE"}`);
     changed = true;
   }
 
   if (changed) {
     writeTournament(t);
-    for (const match of t.matches) {
-      if (match.status === "complete") await checkPhaseComplete(t);
+    if (t.matches.some(m => m.status === "complete" || m.status === "timeout")) {
+      await checkPhaseComplete(t);
     }
   }
 }

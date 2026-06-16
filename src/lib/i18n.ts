@@ -7,7 +7,8 @@ const T = {
     tab_packs:   "SOBRES",
     tab_market:  "MERCADITO",
     tab_fixture: "FIXTURE",
-    tab_game:    "⚽ JUGAR",
+    tab_game:       "⚽ JUGAR",
+    tab_tournament: "🏆 TORNEO",
 
     // Header
     header_subtitle: "ÁLBUM NATIVO DE NOSTR + LIGHTNING",
@@ -388,7 +389,8 @@ const T = {
     tab_packs:   "PACKS",
     tab_market:  "MARKET",
     tab_fixture: "FIXTURE",
-    tab_game:    "⚽ PLAY",
+    tab_game:       "⚽ PLAY",
+    tab_tournament: "🏆 TOURNAMENT",
 
     // Header
     header_subtitle: "NATIVE NOSTR + LIGHTNING ALBUM",

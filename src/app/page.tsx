@@ -31,7 +31,7 @@ import { LangProvider, useLang } from "@/contexts/LangContext";
 import type { Listing, Page } from "@/lib/types";
 import { Tournament } from "@/components/Tournament";
 
-type Tab = "album" | "packs" | "market" | "fixture" | "game";
+type Tab = "album" | "packs" | "market" | "fixture" | "game" | "tournament";
 
 export default function Home() {
   return <LangProvider><HomeInner /></LangProvider>;
@@ -130,7 +130,7 @@ function HomeInner() {
   const activeOutgoing = pmOutgoing.filter(m => !localFinishedIds.has(m.id));
   const hasPendingChallenge = useHasMyTurn(activeIncoming, activeOutgoing, pubkey);
 
-  const VALID_TABS: Tab[] = ["album", "packs", "market", "fixture", "game"];
+  const VALID_TABS: Tab[] = ["album", "packs", "market", "fixture", "game", "tournament"];
   const hashTab = (): Tab => {
     if (typeof window === "undefined") return "album";
     const h = window.location.hash.slice(1) as Tab;
@@ -904,11 +904,12 @@ function HomeInner() {
           >
             {(
               [
-                ["album",   t.tab_album],
-                ["packs",   t.tab_packs],
-                ["market",  t.tab_market],
-                ["fixture", t.tab_fixture],
-                ["game",    t.tab_game],
+                ["album",      t.tab_album],
+                ["packs",      t.tab_packs],
+                ["market",     t.tab_market],
+                ["fixture",    t.tab_fixture],
+                ["game",       t.tab_game],
+                ["tournament", t.tab_tournament],
               ] as [Tab, string][]
             ).map(([k, l]) => (
               <button
@@ -1114,13 +1115,13 @@ function HomeInner() {
                       />
                     </div>
                     <Leaderboard myPubkey={pubkey} onChallenge={challengeFromLeaderboard} />
-
-                    {/* ── TORNEO ── */}
-                    <div style={{ borderTop: "1px solid var(--line)", paddingTop: 24 }}>
-                      <Tournament identity={identity} notify={notify} />
-                    </div>
                   </>
                 )}
+              </div>
+            )}
+            {visitedTabs.has("tournament") && (
+              <div style={{ display: tab === "tournament" ? undefined : "none" }}>
+                <Tournament identity={identity} notify={notify} />
               </div>
             )}
             {visitedTabs.has("market") && (

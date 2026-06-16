@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useLoader } from "@react-three/fiber";
-import { useFBX, useAnimations } from "@react-three/drei";
-import { FBXLoader } from "three-stdlib";
+import { useAnimations } from "@react-three/drei";
+import { FBXLoader, SkeletonUtils } from "three-stdlib";
 import * as THREE from "three";
 import {
   GOAL_Z, GOAL_W, HALF_W, GOAL_H, POST_R, NET_DEPTH,
@@ -261,8 +261,11 @@ function Keeper({
   phase: "aim" | "flying" | "result";
   keeperCol: number;
 }) {
-  // Primary model — provides the mesh + skeleton structure
-  const primaryFbx = useFBX("/Goalkeeper medio.fbx");
+  // Primary model — provides the mesh + skeleton structure.
+  // useLoader returns the same cached THREE.Group for all callers; clone it so
+  // each Canvas instance gets its own object (THREE.js objects can only have one parent).
+  const rawPrimaryFbx = useLoader(FBXLoader, "/Goalkeeper medio.fbx") as THREE.Group;
+  const primaryFbx = useMemo(() => SkeletonUtils.clone(rawPrimaryFbx) as THREE.Group, [rawPrimaryFbx]);
 
   // All 7 animation FBX files loaded in parallel (useLoader caches them)
   const animFbxs = useLoader(FBXLoader, ANIM_PATHS) as THREE.Group[];

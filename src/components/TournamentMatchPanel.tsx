@@ -106,6 +106,8 @@ export function TournamentMatchPanel({
 
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showVictory, setShowVictory] = useState(false);
+  const prevCompleteRef = useRef(false);
 
   // 3D scene state
   const [scenePhase, setScenePhase] = useState<"aim" | "flying" | "result">("aim");
@@ -179,6 +181,17 @@ export function TournamentMatchPanel({
   // Reset auto-reveal ref when round advances
   useEffect(() => { autoRevealRound.current = -1; }, [currentRound]);
 
+  // Victory animation when user wins the match
+  const isComplete = match.status === "complete" || match.status === "timeout";
+  useEffect(() => {
+    if (!prevCompleteRef.current && isComplete && match.winner === myPubkey) {
+      setShowVictory(true);
+      const t = setTimeout(() => setShowVictory(false), 4500);
+      return () => clearTimeout(t);
+    }
+    prevCompleteRef.current = isComplete;
+  }, [isComplete, match.winner, myPubkey]);
+
   async function handleKick(zone: number) {
     if (publishing) return;
     const nonce = generateNonce();
@@ -229,7 +242,6 @@ export function TournamentMatchPanel({
     } finally { setPublishing(false); }
   }
 
-  const isComplete = match.status === "complete" || match.status === "timeout";
   const isSuddenDeath = currentRound > 10;
   const iAmActive = iAmInMatch && !isComplete && actionPhase !== null;
   const myTurn = isKicker || isGoalkeeper;
@@ -242,7 +254,35 @@ export function TournamentMatchPanel({
       border: `1px solid ${iAmActive && myTurn ? "rgba(232,185,35,.4)" : "rgba(255,255,255,.08)"}`,
       borderRadius: 12,
       overflow: "hidden",
+      position: "relative",
     }}>
+      {showVictory && (
+        <>
+          <style>{`@keyframes victoryPulse{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.12);opacity:1}100%{transform:scale(1);opacity:1}}`}</style>
+          <div style={{
+            position: "absolute", inset: 0, zIndex: 10,
+            background: "radial-gradient(ellipse at center, rgba(232,185,35,.45) 0%, rgba(0,0,0,.8) 70%)",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            borderRadius: 12,
+          }}>
+            <div style={{ fontSize: 64, lineHeight: 1, animation: "victoryPulse .5s cubic-bezier(.34,1.56,.64,1) both" }}>🏆</div>
+            <div style={{
+              fontFamily: "var(--display)", fontSize: 26, color: "var(--gold)",
+              marginTop: 12, letterSpacing: 2,
+              animation: "victoryPulse .5s .1s cubic-bezier(.34,1.56,.64,1) both",
+            }}>
+              ¡GANASTE!
+            </div>
+            <div style={{
+              fontFamily: "var(--condensed)", fontSize: 12, color: "rgba(232,185,35,.7)",
+              marginTop: 6, letterSpacing: 1,
+              animation: "victoryPulse .5s .2s cubic-bezier(.34,1.56,.64,1) both",
+            }}>
+              PASÁS A LA SIGUIENTE FASE
+            </div>
+          </div>
+        </>
+      )}
       {/* Score header */}
       <div style={{ padding: "10px 14px 8px", background: "rgba(255,255,255,.03)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
