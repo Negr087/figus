@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { CATALOG, RARITY_META, TEAMS, FWC_CHAMPION_TEAMS, FWC_IMAGE_STICKERS } from "@/lib/catalog";
+import { CATALOG, RARITY_META, TEAMS, FWC_CHAMPION_TEAMS, FWC_IMAGE_STICKERS, fwcImageSrc } from "@/lib/catalog";
 import { Flag } from "./Flag";
 import FACES from "@/lib/faces-manifest.json";
 
@@ -491,14 +491,15 @@ export function StickerFace({
             <ShieldImage team={s.team} light={light} />
           ) : hasFwcImage ? (
             <img
-              src={`/fwc-${num}.png`}
+              src={fwcImageSrc(num)}
               alt=""
               style={{
                 width: "100%",
                 height: "100%",
                 objectFit: "cover",
                 objectPosition: "center 5%",
-                mixBlendMode: "multiply",
+                // multiply removes white bg on logo/stadium PNGs (1-8); real champion photos (9-20) don't need it
+                mixBlendMode: sType === "champion" ? "normal" : "multiply",
                 display: "block",
               }}
             />
