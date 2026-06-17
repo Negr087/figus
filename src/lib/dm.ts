@@ -30,5 +30,5 @@ export function dmYourTurn(): string {
 }
 
 export function dmTournamentStart(): string {
-  return `🏆 ¡El Torneo de Penales arrancó!\n\nYa podés ver tus partidos de zona y jugar tu primera tanda. Entrá ahora: ${SITE_URL}#tournament`;
+  return `🏆 ¡El Torneo de Penales arranca en 5 minutos!\n\nTodos los jugadores están inscriptos. Entrá ahora para estar listo: ${SITE_URL}#tournament`;
 }

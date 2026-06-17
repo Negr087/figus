@@ -16,7 +16,7 @@ const TOURNEY_MATCH_KIND = 30305;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type TournamentStatus = "registering" | "group_stage" | "semi" | "final" | "finished" | "none";
+export type TournamentStatus = "registering" | "starting_soon" | "group_stage" | "semi" | "final" | "finished" | "none";
 export type Group = "A" | "B";
 
 export interface Registration {
@@ -70,6 +70,7 @@ export interface Tournament {
   id: string;
   status: TournamentStatus;
   createdAt: number;
+  startAt: number | null;        // unix timestamp when group stage begins (set during "starting_soon")
   creatorPubkey: string | null;  // first player to register
   maxPlayers: number;
   entrySats: number;
@@ -103,6 +104,7 @@ function createFreshTournament(): Tournament {
     id: Date.now().toString(36),
     status: "registering",
     createdAt: Math.floor(Date.now() / 1000),
+    startAt: null,
     creatorPubkey: null,
     maxPlayers: MAX_PLAYERS,
     entrySats: ENTRY_SATS,
@@ -151,8 +153,11 @@ export async function registerPlayer(pubkey: string, ownedUnique: number): Promi
   t.prizePool += ENTRY_SATS;
 
   if (t.registrations.length === MAX_PLAYERS) {
+    // All players in — enter 5-minute countdown before kicking off
+    t.status  = "starting_soon";
+    t.startAt = now() + 5 * 60;
     writeTournament(t);
-    await startTournament(t);
+    console.log(`🏆 Torneo: inscripción completa. Arranca en 5 min (${new Date(t.startAt * 1000).toISOString()})`);
   } else {
     writeTournament(t);
   }
@@ -378,6 +383,14 @@ function advanceMatchRound(match: TournamentMatch): void {
 export async function timeoutStaleMatches(): Promise<void> {
   const t = readTournament();
   if (!t || t.status === "registering" || t.status === "finished") return;
+
+  // ── Countdown elapsed → start the tournament ──────────────────────────────
+  if (t.status === "starting_soon" && t.startAt !== null && now() >= t.startAt) {
+    console.log("🏆 Countdown terminado — arrancando torneo…");
+    await startTournament(t);
+    return;
+  }
+  if (t.status === "starting_soon") return; // still waiting
 
   let changed = false;
 

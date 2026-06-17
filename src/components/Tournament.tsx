@@ -13,7 +13,7 @@ interface NostrProfile { name: string; picture: string; }
 
 // ── Types (mirror issuer/tournament.ts) ───────────────────────────────────────
 
-type TournamentStatus = "registering" | "group_stage" | "semi" | "final" | "finished" | "none";
+type TournamentStatus = "registering" | "starting_soon" | "group_stage" | "semi" | "final" | "finished" | "none";
 
 interface Registration { pubkey: string; registeredAt: number; strength: number; }
 
@@ -46,6 +46,7 @@ interface Standing {
 interface TournamentData {
   id: string;
   status: TournamentStatus;
+  startAt: number | null;
   creatorPubkey: string | null;
   maxPlayers: number;
   entrySats: number;
@@ -205,29 +206,49 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   const [tab,            setTab]            = useState<"groups" | "bracket" | "matches">("groups");
   const [pendingInvoice, setPendingInvoice] = useState<string | null>(null);
   const [pendingAmount,  setPendingAmount]  = useState<number>(0);
+  const [showDMModal,    setShowDMModal]    = useState(false);
+  const [countdown,      setCountdown]      = useState<number | null>(null);
 
   // Keep a ref to the latest data for use in callbacks without re-creating intervals
   const dataRef = useRef<TournamentData | null>(null);
   dataRef.current = data;
 
-  // Track previous status to detect tournament start transition
+  // Local countdown ticker (updates every second when in starting_soon)
+  useEffect(() => {
+    if (data?.status !== "starting_soon" || !data.startAt) {
+      setCountdown(null);
+      return;
+    }
+    const tick = () => setCountdown(Math.max(0, Math.floor(data.startAt! - Date.now() / 1000)));
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [data?.status, data?.startAt]);
+
+  // Detect tournament start transition → show DM modal
   const prevStatus = useRef<TournamentStatus | null>(null);
   useEffect(() => {
-    if (!data || !identity) { prevStatus.current = data?.status ?? null; return; }
+    if (!data) { prevStatus.current = null; return; }
     const prev = prevStatus.current;
     prevStatus.current = data.status;
-    if (prev === "registering" && data.status === "group_stage") {
-      const flagKey = `figus_tournament_notified_${data.id}`;
-      try { if (localStorage.getItem(flagKey)) return; localStorage.setItem(flagKey, "1"); } catch {}
-      const msg = dmTournamentStart();
-      data.registrations
-        .map(r => r.pubkey)
-        .filter(pk => pk !== identity.pubkey)
-        .forEach(pk => sendDM(identity, pk, msg).catch(() => {}));
-      notify("📨 Notificaciones de inicio enviadas");
+    if (prev === "registering" && data.status === "starting_soon" && identity) {
+      setShowDMModal(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.status, data?.id]);
+
+  function handleSendDMs() {
+    setShowDMModal(false);
+    if (!data || !identity) return;
+    const flagKey = `figus_tournament_notified_${data.id}`;
+    try { if (localStorage.getItem(flagKey)) return; localStorage.setItem(flagKey, "1"); } catch {}
+    const msg = dmTournamentStart();
+    data.registrations
+      .map(r => r.pubkey)
+      .filter(pk => pk !== identity.pubkey)
+      .forEach(pk => sendDM(identity, pk, msg).catch(() => {}));
+    notify("📨 Notificaciones enviadas a los jugadores");
+  }
 
   const myPubkey = identity?.pubkey ?? "";
 
@@ -252,7 +273,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
       if (r.ok) {
         const t: TournamentData = await r.json();
         if (t.status === "none") {
-          setData({ ...t, status: "registering", creatorPubkey: null, maxPlayers: 8, entrySats: 5, prizePool: 0, registrations: [], groups: null, matches: [], standings: null, champion: null });
+          setData({ ...t, status: "registering", startAt: null, creatorPubkey: null, maxPlayers: 8, entrySats: 5, prizePool: 0, registrations: [], groups: null, matches: [], standings: null, champion: null });
         } else {
           setData(t);
         }
@@ -274,10 +295,10 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
     }
   }, [fetchProfiles]);
 
-  // Poll faster during active tournament phases (5s vs 15s)
+  // Poll faster during active or countdown phases (5s vs 15s)
   useEffect(() => {
     fetchTournament();
-    const isLive = data?.status === "group_stage" || data?.status === "semi" || data?.status === "final";
+    const isLive = data?.status === "starting_soon" || data?.status === "group_stage" || data?.status === "semi" || data?.status === "final";
     const iv = setInterval(fetchTournament, isLive ? 5000 : 15000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -291,7 +312,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
       if (r.ok) {
         const t: TournamentData = await r.json();
         setData(t);
-        if (t.status === "registering" && t.registrations.some(reg => reg.pubkey === identity.pubkey)) break;
+        if ((t.status === "registering" || t.status === "starting_soon") && t.registrations.some(reg => reg.pubkey === identity.pubkey)) break;
       }
     }
   }
@@ -327,8 +348,8 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
         setData(fresh);
         if (fresh.status !== "finished" && fresh.status !== "none") {
           if (fresh.registrations.some(r => r.pubkey === identity.pubkey)) return;
-          const activePhases: TournamentStatus[] = ["group_stage", "semi", "final"];
-          if (activePhases.includes(fresh.status)) { setError("El torneo está en curso"); return; }
+          const activePhases: TournamentStatus[] = ["starting_soon", "group_stage", "semi", "final"];
+          if (activePhases.includes(fresh.status)) { setError("El torneo está por comenzar"); return; }
           if (fresh.registrations.length >= fresh.maxPlayers) { setError("El torneo está lleno"); return; }
         }
       }
@@ -405,6 +426,8 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
               {data.status === "registering"
                 ? `Inscripción abierta · ${data.entrySats} sats · ${filled}/${data.maxPlayers} jugadores`
+                : data.status === "starting_soon"
+                ? `¡Todos inscriptos! · Premio: ${data.prizePool} sats · Arrancando en breve`
                 : isLivePhase
                 ? `${phaseLabel} · Premio: ${data.prizePool} sats`
                 : data.champion
@@ -422,20 +445,30 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
             </div>
             {identity ? (
               registered ? (
-                <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, color: "#4ade80", letterSpacing: 0.5 }}>
-                  ✓ INSCRIPTO — esperando más jugadores…
-                </div>
+                <>
+                  <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, color: "#4ade80", letterSpacing: 0.5 }}>
+                    ✓ INSCRIPTO — esperando más jugadores…
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", display: "flex", alignItems: "center", gap: 5 }}>
+                    📨 Al completarse la inscripción recibirás un DM de Nostr avisando que el torneo arranca. Tu extensión puede pedir autorización.
+                  </div>
+                </>
               ) : (
-                <button onClick={handleRegister} disabled={busy} style={{
-                  background: busy ? "rgba(232,185,35,.1)" : "linear-gradient(135deg,var(--gold),#d4920a)",
-                  color: busy ? "var(--muted)" : "#030b18",
-                  border: busy ? "1px solid rgba(232,185,35,.3)" : "none",
-                  padding: "10px 20px", borderRadius: 8,
-                  fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 13, letterSpacing: 0.5,
-                  cursor: busy ? "default" : "pointer",
-                }}>
-                  {busy ? "Procesando…" : `⚡ INSCRIBIRSE · ${data.entrySats} sats`}
-                </button>
+                <>
+                  <button onClick={handleRegister} disabled={busy} style={{
+                    background: busy ? "rgba(232,185,35,.1)" : "linear-gradient(135deg,var(--gold),#d4920a)",
+                    color: busy ? "var(--muted)" : "#030b18",
+                    border: busy ? "1px solid rgba(232,185,35,.3)" : "none",
+                    padding: "10px 20px", borderRadius: 8,
+                    fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 13, letterSpacing: 0.5,
+                    cursor: busy ? "default" : "pointer",
+                  }}>
+                    {busy ? "Procesando…" : `⚡ INSCRIBIRSE · ${data.entrySats} sats`}
+                  </button>
+                  <div style={{ marginTop: 8, fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)" }}>
+                    📨 Al arrancar el torneo recibirás una notificación por DM de Nostr.
+                  </div>
+                </>
               )
             ) : (
               <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--condensed)" }}>
@@ -443,6 +476,28 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
               </div>
             )}
           </>
+        )}
+
+        {/* Countdown (starting_soon) */}
+        {data.status === "starting_soon" && countdown !== null && (
+          <div style={{ marginTop: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, color: "#4ade80", letterSpacing: 0.5 }}>
+                ✓ TODOS INSCRIPTOS — ARRANCANDO EN
+              </div>
+              <div style={{ fontFamily: "var(--display)", fontSize: 22, color: "var(--gold)", letterSpacing: 1 }}>
+                {String(Math.floor(countdown / 60)).padStart(2, "0")}:{String(countdown % 60).padStart(2, "0")}
+              </div>
+            </div>
+            <div style={{ height: 6, background: "rgba(255,255,255,.08)", borderRadius: 99, overflow: "hidden" }}>
+              <div style={{
+                height: "100%",
+                width: `${Math.max(0, (1 - countdown / 300) * 100)}%`,
+                background: "linear-gradient(90deg, #4ade80, var(--gold))",
+                borderRadius: 99, transition: "width 1s linear",
+              }} />
+            </div>
+          </div>
         )}
 
         {/* Champion banner */}
@@ -692,6 +747,66 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
           }}
           notify={notify}
         />
+      )}
+
+      {/* DM confirmation modal */}
+      {showDMModal && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 100,
+          background: "rgba(0,0,0,.75)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 20,
+        }}>
+          <div style={{
+            background: "var(--panel)",
+            border: "1px solid rgba(232,185,35,.35)",
+            borderRadius: 16, padding: "24px 22px", maxWidth: 360, width: "100%",
+            display: "flex", flexDirection: "column", gap: 16,
+          }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ fontSize: 36, lineHeight: 1 }}>📨</div>
+              <div>
+                <div style={{ fontFamily: "var(--display)", fontSize: 15, color: "var(--gold)", letterSpacing: 0.5, marginBottom: 6 }}>
+                  NOTIFICAR JUGADORES
+                </div>
+                <div style={{ fontSize: 12, color: "var(--ink)", lineHeight: 1.6 }}>
+                  Todos los jugadores están inscriptos. ¿Querés enviarles un DM de Nostr avisando que el torneo arranca en 5 minutos?
+                </div>
+                <div style={{ marginTop: 10, fontSize: 10, color: "var(--muted)", lineHeight: 1.5 }}>
+                  Tu extensión de Nostr puede pedir autorización por cada mensaje. Si tenés "autorizar todo" activado, se enviarán automáticamente.
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={handleSendDMs}
+                style={{
+                  flex: 1,
+                  background: "linear-gradient(135deg,var(--gold),#d4920a)",
+                  color: "#030b18", border: "none",
+                  padding: "10px 0", borderRadius: 8,
+                  fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, letterSpacing: 0.5,
+                  cursor: "pointer",
+                }}
+              >
+                ✉️ ENVIAR DMs
+              </button>
+              <button
+                onClick={() => setShowDMModal(false)}
+                style={{
+                  flex: 1,
+                  background: "transparent",
+                  color: "var(--muted)", border: "1px solid var(--line)",
+                  padding: "10px 0", borderRadius: 8,
+                  fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, letterSpacing: 0.5,
+                  cursor: "pointer",
+                }}
+              >
+                OMITIR
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
