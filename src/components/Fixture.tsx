@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { TEAMS, TEAM_GROUPS, PAGES, teamName } from "@/lib/catalog";
 import { Flag } from "./Flag";
 import { useLang } from "@/contexts/LangContext";
 import { usePronosticos } from "@/hooks/usePronosticos";
 import { BetPanel } from "./BetPanel";
 import type { Identity } from "@/lib/identity";
+import type { TeamStanding, StandingsData } from "@/app/api/standings/route";
 
 // ─── Groups order ─────────────────────────────────────────────────────────────
 const GROUPS_ORDER = ["A","B","C","D","E","F","G","H","I","J","K","L"];
@@ -191,12 +192,142 @@ const KO_ROUNDS: KoRound[] = [
   },
 ];
 
+// ─── Standings hook ───────────────────────────────────────────────────────────
+function useStandings() {
+  const [standings, setStandings] = useState<StandingsData | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetch_ = () => {
+    fetch("/api/standings")
+      .then(r => r.ok ? r.json() : null)
+      .then((d: StandingsData | null) => { if (d) setStandings(d); })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetch_();
+    timerRef.current = setInterval(fetch_, 5 * 60 * 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
+
+  return standings;
+}
+
+// ─── Group standings table ────────────────────────────────────────────────────
+function GroupStandingsTable({ rows, lang }: { rows: TeamStanding[]; lang: string }) {
+  const medals = ["🥇", "🥈", "3°", "4°"];
+  return (
+    <div style={{
+      background: "var(--panel)",
+      border: "1px solid var(--line)",
+      borderRadius: 12,
+      overflow: "hidden",
+      marginBottom: 14,
+    }}>
+      {/* Header row */}
+      <div style={{
+        padding: "7px 14px",
+        background: "var(--panel2)",
+        borderBottom: "1px solid var(--line)",
+        display: "grid",
+        gridTemplateColumns: "20px 1fr 28px 24px 24px 24px 28px 28px 28px 32px",
+        gap: "0 4px",
+        fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 9,
+        letterSpacing: 1, color: "var(--muted)", alignItems: "center",
+      }}>
+        <span>#</span>
+        <span>EQUIPO</span>
+        <span style={{ textAlign: "center" }}>PJ</span>
+        <span style={{ textAlign: "center" }}>G</span>
+        <span style={{ textAlign: "center" }}>E</span>
+        <span style={{ textAlign: "center" }}>P</span>
+        <span style={{ textAlign: "center" }}>GF</span>
+        <span style={{ textAlign: "center" }}>GC</span>
+        <span style={{ textAlign: "center" }}>DG</span>
+        <span style={{ textAlign: "center", color: "var(--gold)" }}>PTS</span>
+      </div>
+      {rows.map((row, i) => {
+        const qualifies = i < 2;
+        return (
+          <div
+            key={row.tla}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "20px 1fr 28px 24px 24px 24px 28px 28px 28px 32px",
+              gap: "0 4px",
+              padding: "9px 14px",
+              borderBottom: i < rows.length - 1 ? "1px solid rgba(255,255,255,.05)" : "none",
+              background: qualifies ? "rgba(74,222,128,.04)" : "transparent",
+              alignItems: "center",
+            }}
+          >
+            <span style={{
+              fontFamily: "var(--condensed)", fontWeight: 900,
+              fontSize: i < 2 ? 12 : 10,
+              color: qualifies ? "#4ade80" : "var(--muted)",
+            }}>
+              {medals[i]}
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+              <Flag team={row.tla} height={14} />
+              <span style={{
+                fontFamily: "var(--condensed)", fontWeight: qualifies ? 900 : 700,
+                fontSize: 11, color: qualifies ? "var(--ink)" : "var(--muted)",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {teamName(row.tla, lang)}
+              </span>
+            </div>
+            <Cell v={row.played} muted />
+            <Cell v={row.won} highlight={row.won > 0} />
+            <Cell v={row.draw} />
+            <Cell v={row.lost} red={row.lost > 0} />
+            <Cell v={row.gf} muted />
+            <Cell v={row.ga} muted />
+            <Cell v={row.gd} signed green={row.gd > 0} red={row.gd < 0} />
+            <span style={{
+              textAlign: "center", fontFamily: "var(--condensed)", fontWeight: 900,
+              fontSize: 13, color: qualifies ? "var(--gold)" : "var(--ink)",
+            }}>
+              {row.points}
+            </span>
+          </div>
+        );
+      })}
+      <div style={{
+        padding: "5px 14px",
+        borderTop: "1px solid rgba(74,222,128,.15)",
+        display: "flex", alignItems: "center", gap: 6,
+        fontSize: 9, fontFamily: "var(--condensed)", color: "var(--muted)",
+      }}>
+        <span style={{ width: 8, height: 8, borderRadius: 2, background: "rgba(74,222,128,.35)", display: "inline-block" }} />
+        Clasifican a octavos
+      </div>
+    </div>
+  );
+}
+
+function Cell({
+  v, muted, highlight, red, green, signed,
+}: {
+  v: number; muted?: boolean; highlight?: boolean;
+  red?: boolean; green?: boolean; signed?: boolean;
+}) {
+  const color = red ? "#f87171" : green ? "#4ade80" : highlight ? "var(--ink)" : muted ? "var(--muted)" : "var(--ink)";
+  return (
+    <span style={{ textAlign: "center", fontFamily: "var(--condensed)", fontSize: 11, color }}>
+      {signed && v > 0 ? `+${v}` : v}
+    </span>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export function Fixture({ identity }: { identity?: Identity }) {
   const { t, lang } = useLang();
   const [view,        setView]        = useState<"grupos" | "eliminatorias">("grupos");
   const [activeGroup, setActiveGroup] = useState("A");
   const pubkey = identity?.pubkey ?? null;
+  const standings = useStandings();
 
   return (
     <div className="fade-in">
@@ -244,7 +375,11 @@ export function Fixture({ identity }: { identity?: Identity }) {
               </button>
             ))}
           </div>
-          <GroupView group={activeGroup} t={t} lang={lang} myPubkey={pubkey} identity={identity} />
+          <GroupView
+            group={activeGroup} t={t} lang={lang}
+            myPubkey={pubkey} identity={identity}
+            standingRows={standings?.groups[activeGroup] ?? null}
+          />
         </>
       )}
 
@@ -258,34 +393,40 @@ export function Fixture({ identity }: { identity?: Identity }) {
 
 // ─── Group stage view ─────────────────────────────────────────────────────────
 function GroupView({
-  group, t, lang, myPubkey, identity,
+  group, t, lang, myPubkey, identity, standingRows,
 }: {
   group: string;
   t: import("@/lib/i18n").Translations;
   lang: string;
   myPubkey: string | null;
   identity?: Identity;
+  standingRows: TeamStanding[] | null;
 }) {
   const teams = GROUP_TEAMS[group] ?? [];
   return (
     <div>
-      {/* Team list */}
-      <div style={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
-        <div style={{ padding: "8px 14px", background: "var(--panel2)", borderBottom: "1px solid var(--line)", fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 10, letterSpacing: 2, color: "var(--gold)" }}>
-          {t.fixture_group_label} {group} — {t.fixture_teams_label}
+      {/* Standings table (real-time) */}
+      {standingRows ? (
+        <GroupStandingsTable rows={standingRows} lang={lang} />
+      ) : (
+        /* Fallback: static team list while standings load */
+        <div style={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
+          <div style={{ padding: "8px 14px", background: "var(--panel2)", borderBottom: "1px solid var(--line)", fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 10, letterSpacing: 2, color: "var(--gold)" }}>
+            {t.fixture_group_label} {group} — {t.fixture_teams_label}
+          </div>
+          {teams.map((code, i) => {
+            const team = TEAMS[code];
+            return (
+              <div key={code} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: i < teams.length - 1 ? "1px solid var(--line)" : "none" }}>
+                <span style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, color: "var(--muted)", width: 16 }}>{i + 1}</span>
+                <Flag team={code} height={18} />
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: team.color, flexShrink: 0 }} />
+                <span style={{ fontFamily: "var(--condensed)", fontWeight: 700, fontSize: 13, color: "var(--ink)" }}>{teamName(code, lang)}</span>
+              </div>
+            );
+          })}
         </div>
-        {teams.map((code, i) => {
-          const team = TEAMS[code];
-          return (
-            <div key={code} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: i < teams.length - 1 ? "1px solid var(--line)" : "none" }}>
-              <span style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, color: "var(--muted)", width: 16 }}>{i + 1}</span>
-              <Flag team={code} height={18} />
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: team.color, flexShrink: 0 }} />
-              <span style={{ fontFamily: "var(--condensed)", fontWeight: 700, fontSize: 13, color: "var(--ink)" }}>{teamName(code, lang)}</span>
-            </div>
-          );
-        })}
-      </div>
+      )}
 
       {/* Matches by matchday */}
       {([0, 1, 2] as const).map((mdIdx) => (
