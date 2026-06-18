@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { Identity } from "@/lib/identity";
 import { useProfile } from "@/hooks/useProfile";
 import { useLang } from "@/contexts/LangContext";
+import { requestLacryptaEmailLogin } from "@/lib/lacryptaEmailLogin";
 
 type NcView = "menu" | "qr" | "bunker" | "connecting";
 type Tab = "nostr" | "email";
@@ -110,13 +111,7 @@ export function Connect({
     setEmailState("sending");
     setEmailError(null);
     try {
-      const res = await fetch("/api/auth/email/request", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: normalized }),
-      });
-      const data = await res.json() as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "No se pudo enviar el enlace.");
+      await requestLacryptaEmailLogin({ email: normalized, redirectTo: window.location.hash || "/" });
       setEmailState("sent");
     } catch (err) {
       setEmailState("error");

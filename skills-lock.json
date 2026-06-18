@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "lacrypta-email-login": {
+      "source": "lacrypta/lacrypta-dev",
+      "sourceType": "github",
+      "skillPath": "skills/lacrypta-email-login/SKILL.md",
+      "computedHash": "eb1723e872ff66f6305d5ff41e86bd522e099a9efa7dc434be49c9ddb8bd6c92"
+    }
+  }
+}
