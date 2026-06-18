@@ -12,7 +12,7 @@ import {
 import { handleBetLock, handleBetCancel, loadBetState, settleBetsForMatch, payLnAddress, getLud16 } from "./bets";
 import { startFootballPoller } from "./football";
 import { getPayments } from "./payments";
-import { getTournament, viewTournament, resetTournament, isRegistered, registerPlayer, processCommit, processBlock, processReveal, timeoutStaleMatches, ENTRY_SATS } from "./tournament";
+import { getTournament, viewTournament, resetTournament, isRegistered, registerPlayer, processCommit, processBlock, processReveal, timeoutStaleMatches, findTournamentById, ENTRY_SATS } from "./tournament";
 import { listenNwcPayments } from "../src/lib/nwc-server";
 import {
   getOrder, putOrder, updateOrder, pendingOrders, pruneOrders,
@@ -783,6 +783,17 @@ function readBody(req: http.IncomingMessage): Promise<string> {
       if (url === "/tournament/reset" && method === "POST") {
         resetTournament();
         res.writeHead(200); res.end('{"ok":true}');
+        return;
+      }
+
+      // GET /tournament/:id  → busca por id, en el actual o en el historial de
+      // finalizados (un torneo finalizado se archiva cuando el siguiente arranca,
+      // así su campeón/premio siguen siendo consultables para el claim).
+      const mTid = url.match(/^\/tournament\/([a-z0-9]+)$/);
+      if (mTid && method === "GET") {
+        const t = findTournamentById(mTid[1]);
+        res.writeHead(t ? 200 : 404);
+        res.end(JSON.stringify(t ?? { error: "Tournament not found" }));
         return;
       }
 

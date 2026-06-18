@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import type { EventTemplate } from "nostr-tools";
 import { requestOrderInvoice, tryPayInvoice } from "@/lib/order";
 import { list } from "@/lib/pool";
-import type { Identity } from "@/lib/identity";
+import { signEvent, type Identity } from "@/lib/identity";
 import { sendDM, dmTournamentStart } from "@/lib/dm";
+import { KIND } from "@/lib/constants";
 import { InvoiceModal } from "./InvoiceModal";
 import { TournamentMatchPanel } from "./TournamentMatchPanel";
 import type { InteractiveKick, LiveTournamentMatch } from "./TournamentMatchPanel";
@@ -212,6 +214,8 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   const [busy,           setBusy]           = useState(false);
   const [error,          setError]          = useState<string | null>(null);
   const [resetting,      setResetting]      = useState(false);
+  const [claimingPrize,  setClaimingPrize]  = useState(false);
+  const [prizeClaimed,   setPrizeClaimed]   = useState(false);
 
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [tab,            setTab]            = useState<"groups" | "bracket" | "matches">("groups");
@@ -360,6 +364,74 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
     }
   }
 
+  // Pending-prize record persisted across tournament cycles. The issuer archives
+  // a finished tournament's champion/prizePool once the next one starts, but the
+  // live `data` here only ever reflects the CURRENT tournament — without this,
+  // the champion would lose their "reclamar premio" button the instant someone
+  // registers for the next one.
+  const pendingPrizeKey = identity ? `figus_pending_prize_${identity.pubkey}` : null;
+  const [pendingPrize, setPendingPrize] = useState<{ id: string; prizePool: number } | null>(null);
+
+  useEffect(() => {
+    if (!pendingPrizeKey) { setPendingPrize(null); return; }
+    try {
+      const raw = localStorage.getItem(pendingPrizeKey);
+      setPendingPrize(raw ? JSON.parse(raw) : null);
+    } catch { setPendingPrize(null); }
+  }, [pendingPrizeKey]);
+
+  useEffect(() => {
+    if (!data || !identity || !pendingPrizeKey) return;
+    if (data.status === "finished" && data.champion === identity.pubkey && data.prizePool > 0) {
+      const record = { id: data.id, prizePool: data.prizePool };
+      setPendingPrize(record);
+      try { localStorage.setItem(pendingPrizeKey, JSON.stringify(record)); } catch {}
+    }
+  }, [data?.status, data?.champion, data?.id, data?.prizePool, identity, pendingPrizeKey]);
+
+  // Covers the case where the prize was already claimed from another device.
+  useEffect(() => {
+    if (!pendingPrize || !identity) { setPrizeClaimed(false); return; }
+    fetch(`/api/claim-tournament?tournamentId=${pendingPrize.id}&pubkey=${identity.pubkey}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { claimed?: boolean } | null) => { if (d?.claimed) setPrizeClaimed(true); })
+      .catch(() => {});
+  }, [pendingPrize?.id, identity]);
+
+  async function handleClaimPrize() {
+    if (!pendingPrize || !identity || claimingPrize || prizeClaimed) return;
+    setClaimingPrize(true);
+    setError(null);
+    try {
+      const template: EventTemplate = {
+        kind: KIND.REWARD_CLAIM,
+        created_at: Math.floor(Date.now() / 1000),
+        content: "",
+        tags: [["type", "tournament"], ["tournament", pendingPrize.id]],
+      };
+      const ev = await signEvent(template, identity.mode);
+      const res = await fetch("/api/claim-tournament", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: ev, tournamentId: pendingPrize.id }),
+      });
+      const resData = await res.json() as { ok?: boolean; error?: string; message?: string };
+      if (!res.ok) {
+        // 409 means it was already paid (possibly from another device) — treat as claimed.
+        if (res.status === 409) { setPrizeClaimed(true); if (pendingPrizeKey) try { localStorage.removeItem(pendingPrizeKey); } catch {} }
+        setError(resData.error ?? `Error ${res.status} al reclamar el premio`);
+        return;
+      }
+      setPrizeClaimed(true);
+      if (pendingPrizeKey) try { localStorage.removeItem(pendingPrizeKey); } catch {}
+      notify("🏆 " + (resData.message ?? `Premio de ${pendingPrize.prizePool} sats enviado.`));
+    } catch (e: any) {
+      setError(e?.message ?? "Error al reclamar el premio");
+    } finally {
+      setClaimingPrize(false);
+    }
+  }
+
   async function handleReset() {
     if (!identity || resetting) return;
     if (!window.confirm("¿Finalizar y cancelar el torneo actual? Esta acción no se puede deshacer.")) return;
@@ -454,6 +526,31 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* ── Pending prize claim (persists even after the next tournament starts) ── */}
+      {pendingPrize && (
+        <div style={{
+          background: "rgba(232,185,35,.12)", border: "1px solid rgba(232,185,35,.4)",
+          borderRadius: 12, padding: "14px 16px",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+        }}>
+          <div style={{ fontFamily: "var(--condensed)", fontSize: 12, color: "var(--ink)", lineHeight: 1.5 }}>
+            🏆 Ganaste el torneo anterior — tenés un premio sin reclamar:{" "}
+            <strong style={{ color: "var(--gold)" }}>{pendingPrize.prizePool} sats</strong>
+          </div>
+          <button onClick={handleClaimPrize} disabled={claimingPrize || prizeClaimed} style={{
+            background: prizeClaimed ? "rgba(74,222,128,.15)" : claimingPrize ? "rgba(232,185,35,.1)" : "linear-gradient(135deg,var(--gold),#d4920a)",
+            color: prizeClaimed ? "#4ade80" : claimingPrize ? "var(--muted)" : "#030b18",
+            border: prizeClaimed ? "1px solid rgba(74,222,128,.35)" : "none",
+            padding: "9px 16px", borderRadius: 8,
+            fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, letterSpacing: 0.5,
+            cursor: (claimingPrize || prizeClaimed) ? "default" : "pointer",
+            flexShrink: 0,
+          }}>
+            {prizeClaimed ? "✓ RECLAMADO" : claimingPrize ? "Procesando…" : "⚡ RECLAMAR PREMIO"}
+          </button>
+        </div>
+      )}
 
       {/* ── Header ───────────────────────────────────────────────── */}
       <div style={{

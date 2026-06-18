@@ -4,79 +4,18 @@ import type { Event } from "nostr-tools";
 import fs from "fs";
 import path from "path";
 import { nwcPayServer, fetchNostrEvents } from "@/lib/nwc-server";
-import { hasClaimed, reserveClaim, confirmClaim, releaseClaim } from "@/lib/claim-ledger";
+import { checkClaimedRemote, tryReserveRemote, confirmClaimRemote, releaseClaimRemote } from "@/lib/claim-remote";
 import { PAGES, ALL_NUMBERS } from "@/lib/catalog";
 
 const REWARD_PAGE_SATS  = Number(process.env.REWARD_PAGE_SATS  || "210");
 const REWARD_ALBUM_SATS = Number(process.env.REWARD_ALBUM_SATS || "5000");
 
-// ── Wrappers de claim ledger ──────────────────────────────────────────────────
-// Si ISSUER_API_URL está configurado, el issuer VPS es la fuente de verdad
-// (su disco es duradero; /tmp de Vercel se borra en cada redeploy).
-// Si la API no está disponible, cae al ledger local como fallback.
-
-const ISSUER_API_URL    = process.env.ISSUER_API_URL;
-const ISSUER_API_SECRET = process.env.ISSUER_API_SECRET;
-const CLAIM_TIMEOUT_MS  = 8000;
-
-async function checkClaimed(pubkey: string, pageId: string): Promise<boolean> {
-  if (ISSUER_API_URL && ISSUER_API_SECRET) {
-    try {
-      const r = await fetch(`${ISSUER_API_URL}/claims/${pubkey}/${encodeURIComponent(pageId)}`, {
-        headers: { Authorization: `Bearer ${ISSUER_API_SECRET}` },
-        signal: AbortSignal.timeout(CLAIM_TIMEOUT_MS),
-      });
-      if (r.ok) return (await r.json() as { claimed: boolean }).claimed;
-    } catch { /* API no disponible — caer al local */ }
-  }
-  return hasClaimed(pubkey, pageId);
-}
-
-/** Devuelve true si reservó, false si ya estaba reclamado, "error" si la API falló. */
-async function tryReserve(pubkey: string, pageId: string, amountSats: number): Promise<true | false | "error"> {
-  if (ISSUER_API_URL && ISSUER_API_SECRET) {
-    try {
-      const r = await fetch(`${ISSUER_API_URL}/claims/${pubkey}/${encodeURIComponent(pageId)}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${ISSUER_API_SECRET}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ amountSats }),
-        signal: AbortSignal.timeout(CLAIM_TIMEOUT_MS),
-      });
-      if (r.status === 409) return false;
-      if (r.ok) return true;
-      return "error";
-    } catch { return "error"; }
-  }
-  return reserveClaim(pubkey, pageId, amountSats);
-}
-
-async function doConfirm(pubkey: string, pageId: string): Promise<void> {
-  if (ISSUER_API_URL && ISSUER_API_SECRET) {
-    try {
-      await fetch(`${ISSUER_API_URL}/claims/${pubkey}/${encodeURIComponent(pageId)}`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${ISSUER_API_SECRET}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "confirm" }),
-        signal: AbortSignal.timeout(CLAIM_TIMEOUT_MS),
-      });
-    } catch { /* best effort */ }
-  }
-  confirmClaim(pubkey, pageId);
-}
-
-async function doRelease(pubkey: string, pageId: string): Promise<void> {
-  if (ISSUER_API_URL && ISSUER_API_SECRET) {
-    try {
-      await fetch(`${ISSUER_API_URL}/claims/${pubkey}/${encodeURIComponent(pageId)}`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${ISSUER_API_SECRET}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "release" }),
-        signal: AbortSignal.timeout(CLAIM_TIMEOUT_MS),
-      });
-    } catch { /* best effort */ }
-  }
-  releaseClaim(pubkey, pageId);
-}
+// checkClaimed/tryReserve/doConfirm/doRelease delegan a @/lib/claim-remote, que
+// prefiere el issuer VPS (disco durable) sobre el ledger local de fallback.
+const checkClaimed = checkClaimedRemote;
+const tryReserve   = tryReserveRemote;
+const doConfirm    = confirmClaimRemote;
+const doRelease    = releaseClaimRemote;
 
 export async function POST(req: NextRequest) {
   try {

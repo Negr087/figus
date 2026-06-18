@@ -6,6 +6,8 @@ import { ALL_NUMBERS } from "../src/lib/catalog";
 import { publish, issuerPubkey, now } from "./lib";
 
 const TOURNAMENT_PATH = path.join(process.cwd(), "data", "tournament.json");
+const HISTORY_PATH    = path.join(process.cwd(), "data", "tournament-history.json");
+const HISTORY_LIMIT   = 50;
 const MAX_PLAYERS   = 8;
 const TOTAL_ROUNDS  = 6;  // 3 kicks per player, alternating
 export const ENTRY_SATS       = 5;
@@ -119,6 +121,33 @@ function createFreshTournament(): Tournament {
   return t;
 }
 
+// ── History (so a finished tournament's champion/prize stay claimable after
+// the next tournament starts and overwrites tournament.json) ─────────────────
+
+function archiveTournament(t: Tournament): void {
+  let history: Tournament[] = [];
+  try {
+    if (fs.existsSync(HISTORY_PATH)) history = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf-8"));
+  } catch { /* corrupt/missing — start fresh */ }
+  if (history.some(h => h.id === t.id)) return; // already archived
+  history.push(t);
+  if (history.length > HISTORY_LIMIT) history = history.slice(-HISTORY_LIMIT);
+  const tmp = `${HISTORY_PATH}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(history, null, 2));
+  fs.renameSync(tmp, HISTORY_PATH);
+}
+
+/** Busca un torneo por id, en el actual o en el historial de finalizados. */
+export function findTournamentById(id: string): Tournament | null {
+  const current = readTournament();
+  if (current?.id === id) return current;
+  try {
+    if (!fs.existsSync(HISTORY_PATH)) return null;
+    const history: Tournament[] = JSON.parse(fs.readFileSync(HISTORY_PATH, "utf-8"));
+    return history.find(h => h.id === id) ?? null;
+  } catch { return null; }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function viewTournament(): Tournament | null {
@@ -128,7 +157,10 @@ export function viewTournament(): Tournament | null {
 export function getTournament(): Tournament {
   const t = readTournament();
   if (!t) return createFreshTournament();
-  if (t.status === "finished") return createFreshTournament();
+  if (t.status === "finished") {
+    archiveTournament(t);
+    return createFreshTournament();
+  }
   return t;
 }
 
