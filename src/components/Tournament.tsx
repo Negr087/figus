@@ -109,6 +109,7 @@ function MatchCard({
   onToggle: () => void;
 }) {
   const isComplete = match.status === "complete" || match.status === "timeout";
+  const isLive = match.status === "active" || match.status === "pending";
   const isSuddenDeath = match.kicks.length > 6;
   return (
     <div style={{ background: "rgba(255,255,255,.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,.08)", overflow: "hidden" }}>
@@ -119,9 +120,14 @@ function MatchCard({
             <PlayerName pubkey={match.player1} profiles={profiles} />
           </span>
         </div>
-        <span style={{ fontWeight: 900, fontSize: 15, color: isComplete ? "var(--gold)" : "var(--muted)", minWidth: 40, textAlign: "center" }}>
-          {isComplete ? `${match.score1} – ${match.score2}` : "vs"}
-        </span>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 44, flexShrink: 0 }}>
+          <span style={{ fontWeight: 900, fontSize: 15, color: isComplete ? "var(--gold)" : isLive ? "#4ade80" : "var(--muted)" }}>
+            {isComplete || isLive ? `${match.score1} – ${match.score2}` : "vs"}
+          </span>
+          {isLive && (
+            <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: 0.5, color: "#4ade80" }}>● EN VIVO</span>
+          )}
+        </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
           <span style={{ fontSize: 11, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 80 }}>
             <PlayerName pubkey={match.player2} profiles={profiles} />
@@ -130,7 +136,7 @@ function MatchCard({
         </div>
         <span style={{ fontSize: 10, color: "var(--muted)", marginLeft: 6 }}>{expanded ? "▲" : "▼"}</span>
       </button>
-      {expanded && isComplete && (
+      {expanded && (isComplete || isLive) && (
         <div style={{ padding: "8px 14px 12px", borderTop: "1px solid rgba(255,255,255,.06)" }}>
           {([match.player1, match.player2] as const).map((pk) => {
             const score = pk === match.player1 ? match.score1 : match.score2;
@@ -148,9 +154,14 @@ function MatchCard({
               </div>
             );
           })}
-          {isSuddenDeath && (
+          {isComplete && isSuddenDeath && (
             <div style={{ fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", marginTop: 4, fontStyle: "italic" }}>
               Muerte súbita → ganó <PlayerName pubkey={match.winner!} profiles={profiles} />
+            </div>
+          )}
+          {isLive && (
+            <div style={{ fontSize: 10, color: "#4ade80", fontFamily: "var(--condensed)", marginTop: 4 }}>
+              Ronda {Math.min(match.currentRound, 6)}/6{match.currentRound > 6 ? " · Muerte súbita" : ""}
             </div>
           )}
         </div>
@@ -206,7 +217,6 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   const [tab,            setTab]            = useState<"groups" | "bracket" | "matches">("groups");
   const [pendingInvoice, setPendingInvoice] = useState<string | null>(null);
   const [pendingAmount,  setPendingAmount]  = useState<number>(0);
-  const [showDMModal,    setShowDMModal]    = useState(false);
   const [countdown,      setCountdown]      = useState<number | null>(null);
 
   // Keep a ref to the latest data for use in callbacks without re-creating intervals
@@ -225,20 +235,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
     return () => clearInterval(iv);
   }, [data?.status, data?.startAt]);
 
-  // Detect tournament start transition → show DM modal
-  const prevStatus = useRef<TournamentStatus | null>(null);
-  useEffect(() => {
-    if (!data) { prevStatus.current = null; return; }
-    const prev = prevStatus.current;
-    prevStatus.current = data.status;
-    if (prev === "registering" && data.status === "starting_soon" && identity) {
-      setShowDMModal(true);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.status, data?.id]);
-
   function handleSendDMs() {
-    setShowDMModal(false);
     if (!data || !identity) return;
     const flagKey = `figus_tournament_notified_${data.id}`;
     try { if (localStorage.getItem(flagKey)) return; localStorage.setItem(flagKey, "1"); } catch {}
@@ -250,7 +247,53 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
     notify("📨 Notificaciones enviadas a los jugadores");
   }
 
+  // Auto-notify once the tournament hits the 5-min countdown — only the creator's
+  // client triggers it, so a single DM batch goes out regardless of how many
+  // registered players have this page open. handleSendDMs is itself idempotent
+  // (localStorage flag), so re-running this effect on every poll is harmless.
+  useEffect(() => {
+    if (!data || !identity) return;
+    if (data.status === "starting_soon" && data.creatorPubkey === identity.pubkey) {
+      handleSendDMs();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.status, data?.id, data?.creatorPubkey, identity?.pubkey]);
+
   const myPubkey = identity?.pubkey ?? "";
+
+  // Keep a just-finished match panel mounted for a few seconds after completion
+  // so the win/loss overlay (TournamentMatchPanel) has time to show before the
+  // panel is dropped from "TUS PARTIDOS". Without this the match disappears the
+  // instant the final kick lands, since myActiveMatches normally excludes
+  // completed matches.
+  const [lingeringIds, setLingeringIds] = useState<Set<string>>(new Set());
+  const prevMatchStatusRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!data || !myPubkey) return;
+    const newlyDone: string[] = [];
+    for (const m of data.matches) {
+      if (m.player1 !== myPubkey && m.player2 !== myPubkey) continue;
+      const prevStatus = prevMatchStatusRef.current.get(m.id);
+      const doneNow = m.status === "complete" || m.status === "timeout";
+      const doneBefore = prevStatus === "complete" || prevStatus === "timeout";
+      // prevStatus !== undefined avoids replaying the overlay for matches that
+      // were already finished on first load (e.g. page refresh).
+      if (doneNow && !doneBefore && prevStatus !== undefined) newlyDone.push(m.id);
+      prevMatchStatusRef.current.set(m.id, m.status);
+    }
+    if (newlyDone.length === 0) return;
+    setLingeringIds(prev => new Set([...prev, ...newlyDone]));
+    newlyDone.forEach(id => {
+      setTimeout(() => {
+        setLingeringIds(prev => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, 5000);
+    });
+  }, [data?.matches, myPubkey]);
 
   const fetchProfiles = useCallback(async (pubkeys: string[]) => {
     if (!pubkeys.length) return;
@@ -394,7 +437,9 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
 
   // Derived match lists
   const myMatches = data.matches.filter(m => m.player1 === myPubkey || m.player2 === myPubkey);
-  const myActiveMatches = myMatches.filter(m => m.status !== "complete" && m.status !== "timeout");
+  const myActiveMatches = myMatches.filter(m =>
+    (m.status !== "complete" && m.status !== "timeout") || lingeringIds.has(m.id)
+  );
 
   // Determine current phase label
   const phaseLabel = data.status === "group_stage" ? "Fase de Grupos"
@@ -747,66 +792,6 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
           }}
           notify={notify}
         />
-      )}
-
-      {/* DM confirmation modal */}
-      {showDMModal && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 100,
-          background: "rgba(0,0,0,.75)", backdropFilter: "blur(4px)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          padding: 20,
-        }}>
-          <div style={{
-            background: "var(--panel)",
-            border: "1px solid rgba(232,185,35,.35)",
-            borderRadius: 16, padding: "24px 22px", maxWidth: 360, width: "100%",
-            display: "flex", flexDirection: "column", gap: 16,
-          }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ fontSize: 36, lineHeight: 1 }}>📨</div>
-              <div>
-                <div style={{ fontFamily: "var(--display)", fontSize: 15, color: "var(--gold)", letterSpacing: 0.5, marginBottom: 6 }}>
-                  NOTIFICAR JUGADORES
-                </div>
-                <div style={{ fontSize: 12, color: "var(--ink)", lineHeight: 1.6 }}>
-                  Todos los jugadores están inscriptos. ¿Querés enviarles un DM de Nostr avisando que el torneo arranca en 5 minutos?
-                </div>
-                <div style={{ marginTop: 10, fontSize: 10, color: "var(--muted)", lineHeight: 1.5 }}>
-                  Tu extensión de Nostr puede pedir autorización por cada mensaje. Si tenés "autorizar todo" activado, se enviarán automáticamente.
-                </div>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={handleSendDMs}
-                style={{
-                  flex: 1,
-                  background: "linear-gradient(135deg,var(--gold),#d4920a)",
-                  color: "#030b18", border: "none",
-                  padding: "10px 0", borderRadius: 8,
-                  fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, letterSpacing: 0.5,
-                  cursor: "pointer",
-                }}
-              >
-                ✉️ ENVIAR DMs
-              </button>
-              <button
-                onClick={() => setShowDMModal(false)}
-                style={{
-                  flex: 1,
-                  background: "transparent",
-                  color: "var(--muted)", border: "1px solid var(--line)",
-                  padding: "10px 0", borderRadius: 8,
-                  fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, letterSpacing: 0.5,
-                  cursor: "pointer",
-                }}
-              >
-                OMITIR
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

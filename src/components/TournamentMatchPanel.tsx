@@ -107,6 +107,7 @@ export function TournamentMatchPanel({
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showVictory, setShowVictory] = useState(false);
+  const [showDefeat, setShowDefeat] = useState(false);
   const prevCompleteRef = useRef(false);
 
   // 3D scene state
@@ -181,16 +182,23 @@ export function TournamentMatchPanel({
   // Reset auto-reveal ref when round advances
   useEffect(() => { autoRevealRound.current = -1; }, [currentRound]);
 
-  // Victory animation when user wins the match
+  // Victory / defeat animation when the match ends
   const isComplete = match.status === "complete" || match.status === "timeout";
   useEffect(() => {
-    if (!prevCompleteRef.current && isComplete && match.winner === myPubkey) {
+    const wasComplete = prevCompleteRef.current;
+    prevCompleteRef.current = isComplete;
+    if (wasComplete || !isComplete) return;
+    if (match.winner === myPubkey) {
       setShowVictory(true);
       const t = setTimeout(() => setShowVictory(false), 4500);
       return () => clearTimeout(t);
     }
-    prevCompleteRef.current = isComplete;
-  }, [isComplete, match.winner, myPubkey]);
+    if (iAmInMatch) {
+      setShowDefeat(true);
+      const t = setTimeout(() => setShowDefeat(false), 4500);
+      return () => clearTimeout(t);
+    }
+  }, [isComplete, match.winner, myPubkey, iAmInMatch]);
 
   async function handleKick(zone: number) {
     if (publishing) return;
@@ -279,6 +287,32 @@ export function TournamentMatchPanel({
               animation: "victoryPulse .5s .2s cubic-bezier(.34,1.56,.64,1) both",
             }}>
               PASÁS A LA SIGUIENTE FASE
+            </div>
+          </div>
+        </>
+      )}
+      {showDefeat && (
+        <>
+          <style>{`@keyframes defeatFade{0%{opacity:0;transform:scale(.95)}100%{opacity:1;transform:scale(1)}}`}</style>
+          <div style={{
+            position: "absolute", inset: 0, zIndex: 10,
+            background: "radial-gradient(ellipse at center, rgba(248,113,113,.35) 0%, rgba(0,0,0,.85) 70%)",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            borderRadius: 12,
+            animation: "defeatFade .4s ease both",
+          }}>
+            <div style={{ fontSize: 52, lineHeight: 1 }}>😔</div>
+            <div style={{
+              fontFamily: "var(--display)", fontSize: 24, color: "#f87171",
+              marginTop: 12, letterSpacing: 2,
+            }}>
+              PERDISTE
+            </div>
+            <div style={{
+              fontFamily: "var(--condensed)", fontSize: 12, color: "rgba(248,113,113,.7)",
+              marginTop: 6, letterSpacing: 1,
+            }}>
+              MEJOR SUERTE LA PRÓXIMA
             </div>
           </div>
         </>
