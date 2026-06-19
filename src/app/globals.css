@@ -105,23 +105,35 @@ button { font-family: var(--body); cursor: pointer; }
   border-radius: inherit;
 }
 
-/* ── Album page flip animations ── */
+/* ── Album page flip animations ──────────────────────────────────────────────
+   Each flip lifts the page off the book mid-turn (drop-shadow peaks at 50%,
+   offset toward the swinging/far edge) and settles flat at both ends — gives
+   the rotateY flip a sense of real paper catching light as it lifts and falls. */
 @keyframes albumFlipOutFwd {
-  from { transform: perspective(1200px) rotateY(0deg); }
-  to   { transform: perspective(1200px) rotateY(-90deg); }
+  0%   { transform: perspective(1200px) rotateY(0deg);   filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+  50%  { filter: drop-shadow(-14px 10px 16px rgba(0,0,0,.4)); }
+  100% { transform: perspective(1200px) rotateY(-90deg); filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
 }
 @keyframes albumFlipInFwd {
-  from { transform: perspective(1200px) rotateY(90deg); }
-  to   { transform: perspective(1200px) rotateY(0deg); }
+  0%   { transform: perspective(1200px) rotateY(90deg);  filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+  50%  { filter: drop-shadow(14px 10px 16px rgba(0,0,0,.4)); }
+  100% { transform: perspective(1200px) rotateY(0deg);   filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
 }
 @keyframes albumFlipOutBack {
-  from { transform: perspective(1200px) rotateY(0deg); }
-  to   { transform: perspective(1200px) rotateY(90deg); }
+  0%   { transform: perspective(1200px) rotateY(0deg);  filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+  50%  { filter: drop-shadow(14px 10px 16px rgba(0,0,0,.4)); }
+  100% { transform: perspective(1200px) rotateY(90deg); filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
 }
 @keyframes albumFlipInBack {
-  from { transform: perspective(1200px) rotateY(-90deg); }
-  to   { transform: perspective(1200px) rotateY(0deg); }
+  0%   { transform: perspective(1200px) rotateY(-90deg); filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+  50%  { filter: drop-shadow(-14px 10px 16px rgba(0,0,0,.4)); }
+  100% { transform: perspective(1200px) rotateY(0deg);   filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
 }
+
+/* Paper-shading overlay painted on top of the turning page, synced with the
+   transforms above — darkens as the page lifts edge-on, clears as it settles. */
+@keyframes albumFlipShadeOut { from { opacity: 0; } to { opacity: .65; } }
+@keyframes albumFlipShadeIn  { from { opacity: .65; } to { opacity: 0; } }
 
 @keyframes spin {
   from { transform: rotate(0deg); }

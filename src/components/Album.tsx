@@ -137,20 +137,37 @@ export function Album({
     : `linear-gradient(90deg,${team.color} 0%,${team.accent} 100%)`;
 
   // ── Flip animation style ──────────────────────────────────────────────────
+  // Hinge side: forward flips pivot on the right (turning toward "next" like a
+  // real book), backward flips pivot on the left.
+  const hingeSide = flipPhase === "out"
+    ? (flipDir === "next" ? "right" : "left")
+    : flipPhase === "in"
+    ? (flipDir === "next" ? "left"  : "right")
+    : null;
+
   const pageFlipStyle: React.CSSProperties = {
-    transformOrigin: flipPhase === "out"
-      ? (flipDir === "next" ? "right center" : "left center")
-      : flipPhase === "in"
-      ? (flipDir === "next" ? "left center"  : "right center")
-      : "center center",
+    transformOrigin: hingeSide ? `${hingeSide} center` : "center center",
     animation: flipPhase === "out"
       ? `albumFlipOut${flipDir === "next" ? "Fwd" : "Back"} 0.28s ease-in  both`
       : flipPhase === "in"
       ? `albumFlipIn${flipDir  === "next" ? "Fwd" : "Back"} 0.28s ease-out both`
       : "none",
     backfaceVisibility: "hidden",
-    willChange: "transform",
+    willChange: "transform, filter",
   };
+
+  // Paper-shading overlay: darkens the far edge (opposite the hinge) as the
+  // page lifts edge-on, painted on top so it rotates along with the page.
+  const shadeStyle: React.CSSProperties | null = hingeSide ? {
+    position: "absolute", inset: 0, pointerEvents: "none", zIndex: 5,
+    background: hingeSide === "right"
+      ? "linear-gradient(90deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 100%)"
+      : "linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.55) 100%)",
+    opacity: 0,
+    animation: flipPhase === "out"
+      ? "albumFlipShadeOut 0.28s ease-in both"
+      : "albumFlipShadeIn 0.28s ease-out both",
+  } : null;
 
   return (
     <div className="fade-in" style={{ userSelect: "none" }}>
@@ -530,6 +547,9 @@ export function Album({
               </div>
             </>
           )}
+
+          {/* Paper-shading overlay — rotates with the page during the flip */}
+          {shadeStyle && <div style={shadeStyle} />}
         </div>
 
         {/* ── Corner fold: avanzar página ───────────────────────── */}
