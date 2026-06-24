@@ -193,17 +193,17 @@ export async function registerPlayer(pubkey: string, ownedUnique: number, schedu
   const strength = Math.min(1, ownedUnique / ALL_NUMBERS.length);
   const isFirst = !t.creatorPubkey;
   if (isFirst) {
-    t.creatorPubkey = pubkey;
-    // Only the creator (first registrant) can set the scheduled date, and only
-    // if it's a sane future timestamp — otherwise fall back to the old
-    // "start ~5min after filling up" behavior.
-    if (
+    // The creator (first registrant) must pick a valid future date/time —
+    // it's mandatory, not optional like it used to be.
+    const validSchedule =
       typeof scheduledAt === "number" && Number.isFinite(scheduledAt) &&
       scheduledAt > now() + MIN_SCHEDULE_LEAD_S &&
-      scheduledAt < now() + MAX_SCHEDULE_LEAD_S
-    ) {
-      t.scheduledAt = Math.floor(scheduledAt);
+      scheduledAt < now() + MAX_SCHEDULE_LEAD_S;
+    if (!validSchedule) {
+      return { ok: false, error: "Tenés que elegir día y horario para el torneo antes de inscribirte" };
     }
+    t.creatorPubkey = pubkey;
+    t.scheduledAt = Math.floor(scheduledAt!);
   }
   t.registrations.push({ pubkey, registeredAt: now(), strength });
   t.prizePool += ENTRY_SATS;
@@ -398,6 +398,16 @@ function advanceMatchRound(match: TournamentMatch): void {
   const round = match.currentRound;
   const { score1, score2 } = match;
 
+  // Group stage: regulation can end in a draw (1 pt each in the standings) —
+  // no sudden death. Semi/final must have a winner, so ties go on.
+  if (match.phase === "group" && round === match.totalRounds) {
+    match.status = "complete";
+    match.winner = score1 !== score2 ? (score1 > score2 ? match.player1 : match.player2) : null;
+    match.actionPhase = null;
+    match.completedAt = now();
+    return;
+  }
+
   // After the last regulation round with different scores → done
   if (round === match.totalRounds && score1 !== score2) {
     match.status = "complete";
@@ -556,7 +566,8 @@ function computeStandings(players: string[], matches: TournamentMatch[]): Standi
     else if (m.score1 < m.score2) { s2.pts += 3; s2.w++; s1.l++; }
     else { s1.pts++; s2.pts++; s1.d++; s2.d++; }
   }
-  return [...map.values()].sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
+  // Same points → most goals scored wins the tiebreak.
+  return [...map.values()].sort((a, b) => b.pts - a.pts || b.gf - a.gf);
 }
 
 async function checkPhaseComplete(t: Tournament): Promise<void> {
