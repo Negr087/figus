@@ -9,10 +9,18 @@ const TOURNAMENT_PATH = path.join(process.cwd(), "data", "tournament.json");
 const HISTORY_PATH    = path.join(process.cwd(), "data", "tournament-history.json");
 const HISTORY_LIMIT   = 50;
 const MAX_PLAYERS   = 8;
-const TOTAL_ROUNDS  = 6;  // 3 kicks per player, alternating
-export const ENTRY_SATS       = 5;
+// Rounds per phase (2 kicks per round, alternating kicker/keeper) — semi and
+// final get extra kicks each for more drama as the stakes go up.
+const ROUNDS_BY_PHASE: Record<"group" | "semi" | "final", number> = {
+  group: 6,  // 3 kicks each
+  semi:  8,  // 4 kicks each
+  final: 10, // 5 kicks each
+};
+export const ENTRY_SATS       = 210;
 export const KICKER_TIMEOUT_S = 3 * 60; // 3 min — waiting_commit / waiting_reveal
 export const KEEPER_TIMEOUT_S = 3 * 60; // 3 min — waiting_block (goalkeeper absent → gol)
+const MIN_SCHEDULE_LEAD_S = 60;            // scheduledAt must be at least 1 min out
+const MAX_SCHEDULE_LEAD_S = 30 * 24 * 3600; // ...and at most 30 days out
 
 const TOURNEY_MATCH_KIND = 30305;
 
@@ -51,6 +59,7 @@ export interface TournamentMatch {
   score2: number;
   winner: string | null;
   completedAt: number | null;
+  totalRounds: number;              // regulation rounds before sudden death (varies by phase)
   // Live kick state (not exposed to client in full, pendingCommitHash is private)
   currentRound: number;
   actionPhase: "waiting_commit" | "waiting_block" | "waiting_reveal" | null;
@@ -72,6 +81,7 @@ export interface Tournament {
   id: string;
   status: TournamentStatus;
   createdAt: number;
+  scheduledAt: number | null;    // unix timestamp the creator picked at registration — minimum start time
   startAt: number | null;        // unix timestamp when group stage begins (set during "starting_soon")
   creatorPubkey: string | null;  // first player to register
   maxPlayers: number;
@@ -106,6 +116,7 @@ function createFreshTournament(): Tournament {
     id: Date.now().toString(36),
     status: "registering",
     createdAt: Math.floor(Date.now() / 1000),
+    scheduledAt: null,
     startAt: null,
     creatorPubkey: null,
     maxPlayers: MAX_PLAYERS,
@@ -173,23 +184,38 @@ export function isRegistered(pubkey: string): boolean {
   return t?.registrations.some(r => r.pubkey === pubkey) ?? false;
 }
 
-export async function registerPlayer(pubkey: string, ownedUnique: number): Promise<{ ok: boolean; error?: string }> {
+export async function registerPlayer(pubkey: string, ownedUnique: number, scheduledAt?: number): Promise<{ ok: boolean; error?: string }> {
   const t = getTournament();
   if (t.status !== "registering") return { ok: false, error: "El torneo ya comenzó" };
   if (t.registrations.some(r => r.pubkey === pubkey)) return { ok: false, error: "Ya estás inscripto en este torneo" };
   if (t.registrations.length >= MAX_PLAYERS) return { ok: false, error: "El torneo está lleno" };
 
   const strength = Math.min(1, ownedUnique / ALL_NUMBERS.length);
-  if (!t.creatorPubkey) t.creatorPubkey = pubkey;
+  const isFirst = !t.creatorPubkey;
+  if (isFirst) {
+    t.creatorPubkey = pubkey;
+    // Only the creator (first registrant) can set the scheduled date, and only
+    // if it's a sane future timestamp — otherwise fall back to the old
+    // "start ~5min after filling up" behavior.
+    if (
+      typeof scheduledAt === "number" && Number.isFinite(scheduledAt) &&
+      scheduledAt > now() + MIN_SCHEDULE_LEAD_S &&
+      scheduledAt < now() + MAX_SCHEDULE_LEAD_S
+    ) {
+      t.scheduledAt = Math.floor(scheduledAt);
+    }
+  }
   t.registrations.push({ pubkey, registeredAt: now(), strength });
   t.prizePool += ENTRY_SATS;
 
   if (t.registrations.length === MAX_PLAYERS) {
-    // All players in — enter 5-minute countdown before kicking off
+    // All players in — the scheduled date is a MINIMUM start time: if it's
+    // already in the past (or was never set), fall back to a 5-minute buffer
+    // so the DM notification still has time to go out.
     t.status  = "starting_soon";
-    t.startAt = now() + 5 * 60;
+    t.startAt = Math.max(t.scheduledAt ?? 0, now() + 5 * 60);
     writeTournament(t);
-    console.log(`🏆 Torneo: inscripción completa. Arranca en 5 min (${new Date(t.startAt * 1000).toISOString()})`);
+    console.log(`🏆 Torneo: inscripción completa. Arranca a las ${new Date(t.startAt * 1000).toISOString()}`);
   } else {
     writeTournament(t);
   }
@@ -214,6 +240,7 @@ function makeMatch(id: string, phase: TournamentMatch["phase"], group: Group | u
     status: "pending",
     matchCoord: `${TOURNEY_MATCH_KIND}:${ISSUER}:${tournamentId}:${id}`,
     kicks: [], score1: 0, score2: 0, winner: null, completedAt: null,
+    totalRounds: ROUNDS_BY_PHASE[phase],
     currentRound: 1,
     actionPhase: "waiting_commit",
     currentKicker: player1,       // player1 kicks first (round 1, odd)
@@ -238,7 +265,7 @@ async function publishMatchEvent(tournamentId: string, match: TournamentMatch): 
         ["p", match.player2],
         ["phase", match.phase],
         ...(match.group ? [["group", match.group]] : []),
-        ["rounds", String(TOTAL_ROUNDS)],
+        ["rounds", String(match.totalRounds)],
         ["tourney", tournamentId],
       ],
     });
@@ -371,8 +398,8 @@ function advanceMatchRound(match: TournamentMatch): void {
   const round = match.currentRound;
   const { score1, score2 } = match;
 
-  // After round 10 with different scores → done
-  if (round === TOTAL_ROUNDS && score1 !== score2) {
+  // After the last regulation round with different scores → done
+  if (round === match.totalRounds && score1 !== score2) {
     match.status = "complete";
     match.winner = score1 > score2 ? match.player1 : match.player2;
     match.actionPhase = null;
@@ -381,7 +408,7 @@ function advanceMatchRound(match: TournamentMatch): void {
   }
 
   // After each even round in sudden death → check
-  if (round > TOTAL_ROUNDS && round % 2 === 0 && score1 !== score2) {
+  if (round > match.totalRounds && round % 2 === 0 && score1 !== score2) {
     match.status = "complete";
     match.winner = score1 > score2 ? match.player1 : match.player2;
     match.actionPhase = null;

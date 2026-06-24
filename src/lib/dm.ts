@@ -29,6 +29,12 @@ export function dmYourTurn(): string {
   return `⚽ ¡Es tu turno de patear en la tanda de penales!\n\nEntrá a jugar: ${SITE_URL}#game`;
 }
 
-export function dmTournamentStart(): string {
-  return `🏆 ¡El Torneo de Penales arranca en 5 minutos!\n\nTodos los jugadores están inscriptos. Entrá ahora para estar listo: ${SITE_URL}#tournament`;
+export function dmTournamentStart(startAtUnixSeconds: number): string {
+  const mins = Math.round((startAtUnixSeconds * 1000 - Date.now()) / 60000);
+  const when = mins <= 6
+    ? "¡arranca en minutos!"
+    : `arranca el ${new Date(startAtUnixSeconds * 1000).toLocaleString("es-AR", {
+        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+      })} ART`;
+  return `🏆 ¡El Torneo de Penales ${when}\n\nTodos los jugadores están inscriptos. Entrá para estar listo: ${SITE_URL}#tournament`;
 }

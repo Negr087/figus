@@ -39,6 +39,7 @@ export interface LiveTournamentMatch {
   score1: number;
   score2: number;
   winner: string | null;
+  totalRounds: number;
   currentRound: number;
   actionPhase: "waiting_commit" | "waiting_block" | "waiting_reveal" | null;
   currentKicker: string | null;
@@ -250,7 +251,7 @@ export function TournamentMatchPanel({
     } finally { setPublishing(false); }
   }
 
-  const isSuddenDeath = currentRound > 10;
+  const isSuddenDeath = currentRound > match.totalRounds;
   const iAmActive = iAmInMatch && !isComplete && actionPhase !== null;
   const myTurn = isKicker || isGoalkeeper;
   const winnerProfile = match.winner ? profiles.get(match.winner) : null;
@@ -329,7 +330,7 @@ export function TournamentMatchPanel({
             ? `COMPLETADO · Ganó ${winnerName}`
             : isSuddenDeath
             ? "MUERTE SÚBITA"
-            : `RONDA ${Math.min(currentRound, 6)}/6`}
+            : `RONDA ${Math.min(currentRound, match.totalRounds)}/${match.totalRounds}`}
         </div>
       </div>
 

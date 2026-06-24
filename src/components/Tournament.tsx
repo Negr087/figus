@@ -32,6 +32,7 @@ interface TournamentMatch {
   score2: number;
   winner: string | null;
   completedAt: number | null;
+  totalRounds: number;
   currentRound: number;
   actionPhase: "waiting_commit" | "waiting_block" | "waiting_reveal" | null;
   currentKicker: string | null;
@@ -48,6 +49,7 @@ interface Standing {
 interface TournamentData {
   id: string;
   status: TournamentStatus;
+  scheduledAt: number | null;
   startAt: number | null;
   creatorPubkey: string | null;
   maxPlayers: number;
@@ -63,6 +65,30 @@ interface TournamentData {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const short = (pk: string) => pk.slice(0, 8) + "…";
+
+// Default proposed date for whoever registers first: tomorrow, same time,
+// rounded to the next half hour — just a starting point, fully editable.
+function defaultScheduledDateTime(): string {
+  const d = new Date(Date.now() + 24 * 3600 * 1000);
+  d.setMinutes(d.getMinutes() < 30 ? 30 : 0, 0, 0);
+  if (d.getMinutes() === 0) d.setHours(d.getHours() + 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatScheduled(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleString("es-AR", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+// Earliest selectable value for the <input type="datetime-local"> — a couple
+// minutes from now, so the picked date always clears the server's minimum lead.
+function minScheduledDateTime(): string {
+  const d = new Date(Date.now() + 5 * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function Avatar({ pubkey, profiles, size = 24 }: { pubkey: string; profiles: Map<string, NostrProfile>; size?: number }) {
   const p = profiles.get(pubkey);
@@ -112,7 +138,7 @@ function MatchCard({
 }) {
   const isComplete = match.status === "complete" || match.status === "timeout";
   const isLive = match.status === "active" || match.status === "pending";
-  const isSuddenDeath = match.kicks.length > 6;
+  const isSuddenDeath = match.kicks.length > match.totalRounds;
   return (
     <div style={{ background: "rgba(255,255,255,.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,.08)", overflow: "hidden" }}>
       <button onClick={onToggle} style={{ width: "100%", background: "none", border: "none", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", color: "var(--ink)", fontFamily: "var(--condensed)" }}>
@@ -163,7 +189,7 @@ function MatchCard({
           )}
           {isLive && (
             <div style={{ fontSize: 10, color: "#4ade80", fontFamily: "var(--condensed)", marginTop: 4 }}>
-              Ronda {Math.min(match.currentRound, 6)}/6{match.currentRound > 6 ? " · Muerte súbita" : ""}
+              Ronda {Math.min(match.currentRound, match.totalRounds)}/{match.totalRounds}{match.currentRound > match.totalRounds ? " · Muerte súbita" : ""}
             </div>
           )}
         </div>
@@ -216,6 +242,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   const [resetting,      setResetting]      = useState(false);
   const [claimingPrize,  setClaimingPrize]  = useState(false);
   const [prizeClaimed,   setPrizeClaimed]   = useState(false);
+  const [scheduledDateTime, setScheduledDateTime] = useState(defaultScheduledDateTime);
 
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [tab,            setTab]            = useState<"groups" | "bracket" | "matches">("groups");
@@ -240,10 +267,10 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   }, [data?.status, data?.startAt]);
 
   function handleSendDMs() {
-    if (!data || !identity) return;
+    if (!data || !identity || !data.startAt) return;
     const flagKey = `figus_tournament_notified_${data.id}`;
     try { if (localStorage.getItem(flagKey)) return; localStorage.setItem(flagKey, "1"); } catch {}
-    const msg = dmTournamentStart();
+    const msg = dmTournamentStart(data.startAt);
     data.registrations
       .map(r => r.pubkey)
       .filter(pk => pk !== identity.pubkey)
@@ -320,7 +347,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
       if (r.ok) {
         const t: TournamentData = await r.json();
         if (t.status === "none") {
-          setData({ ...t, status: "registering", startAt: null, creatorPubkey: null, maxPlayers: 8, entrySats: 5, prizePool: 0, registrations: [], groups: null, matches: [], standings: null, champion: null });
+          setData({ ...t, status: "registering", scheduledAt: null, startAt: null, creatorPubkey: null, maxPlayers: 8, entrySats: 210, prizePool: 0, registrations: [], groups: null, matches: [], standings: null, champion: null });
         } else {
           setData(t);
         }
@@ -469,14 +496,20 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
         }
       }
 
+      const willBeCreator = (data?.registrations.length ?? 0) === 0;
+      const scheduledAtUnix = willBeCreator && scheduledDateTime
+        ? Math.floor(new Date(scheduledDateTime).getTime() / 1000)
+        : null;
+
       const { invoice, amountSats } = await requestOrderInvoice({
         action: "tournament-register" as any,
+        extraTags: scheduledAtUnix ? [["scheduledAt", String(scheduledAtUnix)]] : undefined,
         signerMode: identity.mode,
       });
       const paid = await tryPayInvoice(invoice);
       if (!paid) {
         setPendingInvoice(invoice);
-        setPendingAmount(amountSats || data?.entrySats || 5);
+        setPendingAmount(amountSats || data?.entrySats || 210);
         return;
       }
       await pollForRegistration();
@@ -503,6 +536,9 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   const registered = data.registrations.some(r => r.pubkey === myPubkey);
   const filled = data.registrations.length;
   const pct = (filled / data.maxPlayers) * 100;
+  const isFirstRegistrant = filled === 0;
+  const scheduleInvalid = isFirstRegistrant &&
+    (!scheduledDateTime || new Date(scheduledDateTime).getTime() < Date.now() + 60_000);
 
   const isLivePhase = data.status === "group_stage" || data.status === "semi" || data.status === "final";
   const headerGrad = "linear-gradient(135deg, rgba(232,185,35,.08) 0%, rgba(245,158,11,.04) 100%)";
@@ -591,22 +627,54 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
                   <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, color: "#4ade80", letterSpacing: 0.5 }}>
                     ✓ INSCRIPTO — esperando más jugadores…
                   </div>
+                  {data.scheduledAt && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: "var(--gold)", fontFamily: "var(--condensed)", fontWeight: 700 }}>
+                      📅 Arranca: {formatScheduled(data.scheduledAt)} ART (o cuando se complete el cupo, lo que pase después)
+                    </div>
+                  )}
                   <div style={{ marginTop: 8, fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", display: "flex", alignItems: "center", gap: 5 }}>
                     📨 Al completarse la inscripción recibirás un DM de Nostr avisando que el torneo arranca. Tu extensión puede pedir autorización.
                   </div>
                 </>
               ) : (
                 <>
-                  <button onClick={handleRegister} disabled={busy} style={{
-                    background: busy ? "rgba(232,185,35,.1)" : "linear-gradient(135deg,var(--gold),#d4920a)",
-                    color: busy ? "var(--muted)" : "#030b18",
-                    border: busy ? "1px solid rgba(232,185,35,.3)" : "none",
+                  {data.registrations.length === 0 ? (
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: "block", fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", fontWeight: 700, marginBottom: 4 }}>
+                        📅 Elegí cuándo arranca el torneo (los demás lo van a ver al inscribirse)
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={scheduledDateTime}
+                        min={minScheduledDateTime()}
+                        onChange={e => setScheduledDateTime(e.target.value)}
+                        style={{
+                          background: "var(--panel2)", border: "1px solid var(--line)",
+                          borderRadius: 6, padding: "6px 10px", color: "var(--ink)",
+                          fontSize: 12, fontFamily: "var(--condensed)", fontWeight: 700,
+                        }}
+                      />
+                    </div>
+                  ) : data.scheduledAt && (
+                    <div style={{ marginBottom: 10, fontSize: 11, color: "var(--gold)", fontFamily: "var(--condensed)", fontWeight: 700 }}>
+                      📅 Arranca: {formatScheduled(data.scheduledAt)} ART (o cuando se complete el cupo)
+                    </div>
+                  )}
+                  <button onClick={handleRegister} disabled={busy || scheduleInvalid} style={{
+                    background: (busy || scheduleInvalid) ? "rgba(232,185,35,.1)" : "linear-gradient(135deg,var(--gold),#d4920a)",
+                    color: (busy || scheduleInvalid) ? "var(--muted)" : "#030b18",
+                    border: (busy || scheduleInvalid) ? "1px solid rgba(232,185,35,.3)" : "none",
                     padding: "10px 20px", borderRadius: 8,
                     fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 13, letterSpacing: 0.5,
-                    cursor: busy ? "default" : "pointer",
+                    cursor: (busy || scheduleInvalid) ? "default" : "pointer",
                   }}>
                     {busy ? "Procesando…" : `⚡ INSCRIBIRSE · ${data.entrySats} sats`}
                   </button>
+                  {scheduleInvalid && (
+                    <div style={{ marginTop: 6, fontSize: 10, color: "#f87171", fontFamily: "var(--condensed)" }}>
+                      Elegí una fecha y hora futuras antes de inscribirte.
+                    </div>
+                  )}
                   <div style={{ marginTop: 8, fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)" }}>
                     📨 Al arrancar el torneo recibirás una notificación por DM de Nostr.
                   </div>
@@ -620,25 +688,29 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
           </>
         )}
 
-        {/* Countdown (starting_soon) */}
+        {/* Countdown (starting_soon) — full date+time while far out, MM:SS in the final stretch */}
         {data.status === "starting_soon" && countdown !== null && (
           <div style={{ marginTop: 4 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: countdown <= 600 ? 8 : 0, flexWrap: "wrap", gap: 6 }}>
               <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, color: "#4ade80", letterSpacing: 0.5 }}>
-                ✓ TODOS INSCRIPTOS — ARRANCANDO EN
+                ✓ TODOS INSCRIPTOS — ARRANCANDO {countdown > 600 && data.startAt ? `EL ${formatScheduled(data.startAt).toUpperCase()} ART` : "EN"}
               </div>
-              <div style={{ fontFamily: "var(--display)", fontSize: 22, color: "var(--gold)", letterSpacing: 1 }}>
-                {String(Math.floor(countdown / 60)).padStart(2, "0")}:{String(countdown % 60).padStart(2, "0")}
+              {countdown <= 600 && (
+                <div style={{ fontFamily: "var(--display)", fontSize: 22, color: "var(--gold)", letterSpacing: 1 }}>
+                  {String(Math.floor(countdown / 60)).padStart(2, "0")}:{String(countdown % 60).padStart(2, "0")}
+                </div>
+              )}
+            </div>
+            {countdown <= 600 && (
+              <div style={{ height: 6, background: "rgba(255,255,255,.08)", borderRadius: 99, overflow: "hidden" }}>
+                <div style={{
+                  height: "100%",
+                  width: `${Math.max(0, (1 - countdown / 600) * 100)}%`,
+                  background: "linear-gradient(90deg, #4ade80, var(--gold))",
+                  borderRadius: 99, transition: "width 1s linear",
+                }} />
               </div>
-            </div>
-            <div style={{ height: 6, background: "rgba(255,255,255,.08)", borderRadius: 99, overflow: "hidden" }}>
-              <div style={{
-                height: "100%",
-                width: `${Math.max(0, (1 - countdown / 300) * 100)}%`,
-                background: "linear-gradient(90deg, #4ade80, var(--gold))",
-                borderRadius: 99, transition: "width 1s linear",
-              }} />
-            </div>
+            )}
           </div>
         )}
 
