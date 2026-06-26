@@ -167,13 +167,30 @@ async function main() {
     console.log(`   #${r.num}`.padEnd(8) + `| ${r.current}`.padEnd(15) + `| ${r.expected}`.padEnd(23) + `| ${r.delta > 0 ? "+" : ""}${r.delta}`);
   }
 
+  // Solo se devuelven figuritas (delta > 0: el cache tiene MENOS de lo que el
+  // historial prueba que le tocó y nunca vendió/perdió). Los delta < 0 son
+  // casos donde el cache tiene MÁS de lo reconstruido — restar stock ahí
+  // depende de que la reconstrucción esté 100% completa (si un relay perdió
+  // un GRANT viejo, parece "exceso" sin serlo), así que requieren revisión
+  // manual con --explain=<num> antes de tocarlos; no se aplican automático.
+  const gains = rows.filter(r => r.delta > 0);
+  const excess = rows.filter(r => r.delta < 0);
+  if (excess.length > 0) {
+    console.log(`\nℹ️  ${excess.length} figus con cache por ENCIMA del historial reconstruido — no se tocan automáticamente (revisar con --explain=<num>):`);
+    console.log(`   ${excess.map(r => `#${r.num} (${r.delta})`).join(", ")}`);
+  }
+
   if (!apply) {
-    console.log("\nℹ️  Dry-run — no se modificó nada. Volvé a correr con --apply para corregir.");
+    console.log(`\nℹ️  Dry-run — no se modificó nada. Volvé a correr con --apply para devolver las ${gains.length} figus de delta positivo.`);
+    return;
+  }
+  if (gains.length === 0) {
+    console.log("\nℹ️  No hay figus para devolver (todas las discrepancias son de exceso, requieren revisión manual).");
     return;
   }
 
-  console.log("\n✍️  Aplicando corrección…");
-  for (const r of rows) {
+  console.log(`\n✍️  Devolviendo ${gains.length} figus de delta positivo…`);
+  for (const r of gains) {
     setCachedOwnership(`${pubkey}:${r.num}`, r.expected);
     await publish({
       kind: 30100,
