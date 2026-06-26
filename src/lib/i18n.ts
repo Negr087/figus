@@ -310,7 +310,7 @@ const T = {
     landing_tagline: "El primer álbum de figuritas del Mundial nativo de Nostr y Bitcoin. Coleccioná, intercambiá y jugá — todo descentralizado.",
     landing_how_it_works: "CÓMO FUNCIONA",
     landing_album_title: "EL ÁLBUM",
-    landing_album_desc: "672 figuritas del Mundial 2026 organizadas en páginas por grupo y selección. Completá páginas para reclamar premios en sats.",
+    landing_album_desc: "1028 figuritas del Mundial 2026 organizadas en páginas por grupo y selección. Completá páginas para reclamar premios en sats.",
     landing_packs_title: "SOBRES",
     landing_packs_desc: "Comprá sobres por 21 sats vía Lightning. Cada sobre trae 7 figuritas aleatorias de distintas rarezas. Tu primero es siempre gratis.",
     landing_market_title: "MERCADO P2P",
