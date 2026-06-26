@@ -22,6 +22,7 @@
 //   npx tsx issuer/reconcile-ownership.ts <pubkey> --apply    (corrige)
 import fs from "fs";
 import path from "path";
+import type { Event } from "nostr-tools";
 import { pool, RELAYS, ALBUM_ID, issuerPubkey, publish, now, tag } from "./lib";
 import { getOwnershipForPubkey, setCachedOwnership, flushSync } from "./store";
 
@@ -44,9 +45,26 @@ function refuseIfIssuerRunning(): void {
   }
 }
 
-async function listAll(filter: Record<string, unknown>) {
-  const evs = await pool.querySync(RELAYS, filter as any, { maxWait: 5000 });
-  const byId = new Map(evs.map(e => [e.id, e]));
+// Pagina hacia atrás con `until` hasta que una vuelta no traiga eventos
+// nuevos: los relays imponen un límite por consulta (varía según relay, pero
+// suele rondar 500-1000) y sin esto una cuenta activa con cientos de eventos
+// se trunca en silencio — el filtro original solo veía "los últimos N", no
+// todo el historial, lo que arruina el conteo reconstruido.
+async function listAll(filter: Record<string, unknown>): Promise<Event[]> {
+  const byId = new Map<string, Event>();
+  let until: number | undefined;
+  for (let page = 0; page < 200; page++) {
+    const pageFilter = { ...filter, limit: 500, ...(until ? { until } : {}) };
+    const evs = await pool.querySync(RELAYS, pageFilter as any, { maxWait: 5000 });
+    let added = 0;
+    let oldest = until;
+    for (const ev of evs) {
+      if (!byId.has(ev.id)) { byId.set(ev.id, ev); added++; }
+      if (oldest === undefined || ev.created_at < oldest) oldest = ev.created_at;
+    }
+    if (added === 0 || oldest === undefined) break; // no avanzó: se acabó el historial
+    until = oldest - 1; // próxima página: estrictamente más vieja, evita repetir el borde
+  }
   return [...byId.values()];
 }
 
