@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { KIND, ISSUER_PUBKEY } from "@/lib/constants";
-import { list } from "@/lib/pool";
+import { list, listAll } from "@/lib/pool";
 import { parseOwnership } from "@/lib/parsers";
 import { ALL_NUMBERS } from "@/lib/catalog";
 import type { LeaderEntry } from "@/lib/types";
@@ -48,11 +48,13 @@ export function useLeaderboard(enabled: boolean): { entries: LeaderEntry[]; load
       ];
       if (!pubkeys.length) { setLoading(false); return; }
 
-      // Paso 2: query individual por jugador — igual a lo que hace el álbum.
-      // Así cada jugador tiene su propio query sin competir por el límite del relay.
+      // Paso 2: query individual por jugador, paginada — un jugador con muchas
+      // figuritas distintas tiene un 30100 addressable por cada una, y una sola
+      // consulta sin paginar puede truncarse en el límite del relay (visto en
+      // producción: un usuario con 1016 figus aparecía con 650 puntos).
       const perPlayerEvents = await Promise.all(
         pubkeys.map(pk =>
-          list([{ kinds: [KIND.OWNERSHIP], authors: [ISSUER_PUBKEY], "#p": [pk] }], 6000)
+          listAll({ kinds: [KIND.OWNERSHIP], authors: [ISSUER_PUBKEY], "#p": [pk] }, 6000)
         )
       );
       if (cancelled) return;

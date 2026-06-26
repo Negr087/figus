@@ -37,6 +37,30 @@ export async function list(filters: Filter[], maxWait = 2000): Promise<Event[]> 
   return Array.from(byId.values());
 }
 
+// Como list() pero para UN filtro que puede tener más resultados que el límite
+// por consulta de un relay (p.ej. un usuario con cientos de figuritas distintas,
+// cada una su propio evento 30100 addressable): pagina hacia atrás con `until`
+// hasta que una vuelta no traiga eventos nuevos, en vez de quedarse con lo que
+// el relay decida devolver en una sola consulta (que puede truncar en silencio).
+export async function listAll(filter: Filter, maxWait = 2000): Promise<Event[]> {
+  const p = getPool();
+  const byId = new Map<string, Event>();
+  let until: number | undefined;
+  for (let page = 0; page < 50; page++) {
+    const pageFilter: Filter = { ...filter, limit: 500, ...(until ? { until } : {}) };
+    const results = await p.querySync(getRelays(), pageFilter, { maxWait });
+    let added = 0;
+    let oldest = until;
+    for (const ev of results) {
+      if (!byId.has(ev.id)) { byId.set(ev.id, ev); added++; }
+      if (oldest === undefined || ev.created_at < oldest) oldest = ev.created_at;
+    }
+    if (added === 0 || oldest === undefined) break; // no avanzó: se acabó el historial
+    until = oldest - 1;
+  }
+  return Array.from(byId.values());
+}
+
 // Suscripción viva a UN filtro. Devuelve unsub.
 export function subscribeOne(
   filter: Filter,

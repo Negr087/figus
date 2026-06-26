@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Event } from "nostr-tools";
 import { KIND, ISSUER_PUBKEY, ALBUM_ID } from "@/lib/constants";
-import { list, subscribe } from "@/lib/pool";
+import { list, listAll, subscribe } from "@/lib/pool";
 import {
   parseListings,
   parseOwnership,
@@ -117,7 +117,12 @@ export function useGameState(pubkey: string | null) {
 
       if (pubkey) {
         const [owns, grants, freeClaims] = await Promise.all([
-          list([{ kinds: [KIND.OWNERSHIP], authors: [ISSUER_PUBKEY], "#p": [pubkey] }]),
+          // Paginado: un usuario con muchas figuritas distintas tiene un 30100
+          // addressable por cada una — sin paginar, una colección grande podía
+          // truncarse en el límite del relay (el merge con localStorage lo
+          // disimulaba con el tiempo, pero en una sesión/dispositivo nuevo se
+          // veía un conteo más bajo que el real).
+          listAll({ kinds: [KIND.OWNERSHIP], authors: [ISSUER_PUBKEY], "#p": [pubkey] }),
           list([{ kinds: [KIND.GRANT], authors: [ISSUER_PUBKEY], "#p": [pubkey], limit: 1 }]),
           list([{ kinds: [KIND.FREE_PACK_CLAIM], authors: [pubkey], "#d": [`free-pack:${ALBUM_ID}`] }]),
         ]);
@@ -250,9 +255,9 @@ export function useGameState(pubkey: string | null) {
 
   const refresh = useCallback(async () => {
     if (!pubkey || !ISSUER_PUBKEY) return;
-    const owns = onlyFromIssuer(await list([
+    const owns = onlyFromIssuer(await listAll(
       { kinds: [KIND.OWNERSHIP], authors: [ISSUER_PUBKEY], "#p": [pubkey] },
-    ]));
+    ));
     ownEvents.current = owns;
     const merged = mergeOwn(parseOwnership(owns), readLocalOwn(pubkey));
     writeLocalOwn(pubkey, merged);
