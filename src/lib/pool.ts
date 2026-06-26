@@ -61,6 +61,32 @@ export async function listAll(filter: Filter, maxWait = 2000): Promise<Event[]> 
   return Array.from(byId.values());
 }
 
+// Corre `fn` sobre `items` con a lo sumo `limit` en simultáneo. Si se dispara
+// todo junto (Promise.all sin tope) y un relay está lento/caído, cada item
+// suma su propio intento de conexión a ese relay — con muchos items a la vez
+// se amontonan más conexiones pendientes que las que el navegador deja abrir
+// en paralelo hacia el mismo host, y la cola tarda muchísimo más en vaciarse
+// (visto en producción: el Ranking Global tardaba >1min y terminaba en 0 para
+// todos con un solo relay caído, apenas notorio antes con menos consultas en
+// vuelo a la vez).
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // Suscripción viva a UN filtro. Devuelve unsub.
 export function subscribeOne(
   filter: Filter,
