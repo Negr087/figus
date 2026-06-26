@@ -8,6 +8,7 @@ import { usePronosticos } from "@/hooks/usePronosticos";
 import { BetPanel } from "./BetPanel";
 import type { Identity } from "@/lib/identity";
 import type { TeamStanding, StandingsData } from "@/app/api/standings/route";
+import type { KoApiMatch, KoMatchesData } from "@/app/api/ko-matches/route";
 
 // ─── Groups order ─────────────────────────────────────────────────────────────
 const GROUPS_ORDER = ["A","B","C","D","E","F","G","H","I","J","K","L"];
@@ -213,6 +214,27 @@ function useStandings() {
   return standings;
 }
 
+// ─── Knockout matches hook (equipos reales una vez confirmados) ──────────────
+function useKoMatches() {
+  const [koMatches, setKoMatches] = useState<KoApiMatch[] | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetch_ = () => {
+    fetch("/api/ko-matches")
+      .then(r => r.ok ? r.json() : null)
+      .then((d: KoMatchesData | null) => { if (d) setKoMatches(d.matches); })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetch_();
+    timerRef.current = setInterval(fetch_, 5 * 60 * 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
+
+  return koMatches;
+}
+
 // ─── Group standings table ────────────────────────────────────────────────────
 function GroupStandingsTable({ rows, lang }: { rows: TeamStanding[]; lang: string }) {
   const medals = ["🥇", "🥈", "3°", "4°"];
@@ -328,6 +350,7 @@ export function Fixture({ identity }: { identity?: Identity }) {
   const [activeGroup, setActiveGroup] = useState("A");
   const pubkey = identity?.pubkey ?? null;
   const standings = useStandings();
+  const koMatches = useKoMatches();
 
   return (
     <div className="fade-in">
@@ -385,7 +408,7 @@ export function Fixture({ identity }: { identity?: Identity }) {
 
       {/* ── ELIMINATORIAS ── */}
       {view === "eliminatorias" && (
-        <KnockoutView t={t} myPubkey={pubkey} identity={identity} />
+        <KnockoutView t={t} lang={lang} myPubkey={pubkey} identity={identity} koMatches={koMatches} />
       )}
     </div>
   );
@@ -535,11 +558,13 @@ function MatchRow({
 
 // ─── Knockout view ────────────────────────────────────────────────────────────
 function KnockoutView({
-  t, myPubkey, identity,
+  t, lang, myPubkey, identity, koMatches,
 }: {
   t: import("@/lib/i18n").Translations;
+  lang: string;
   myPubkey: string | null;
   identity?: Identity;
+  koMatches: KoApiMatch[] | null;
 }) {
   const ROUND_LABELS: Record<string, string> = {
     r32:   t.ko_round32,
@@ -552,6 +577,12 @@ function KnockoutView({
 
   const [activeRound, setActiveRound] = useState("r32");
   const current = KO_ROUNDS.find((r) => r.id === activeRound)!;
+
+  // football-data.org ya conoce la estructura fija (fechas/stage) desde el
+  // arranque del torneo y completa homeTeam/awayTeam en cuanto el cruce se
+  // decide oficialmente — alcanza con emparejar por orden cronológico dentro
+  // de la ronda (la lista que llega ya viene ordenada por utcDate).
+  const apiForRound = (koMatches ?? []).filter((m) => m.round === activeRound);
 
   return (
     <div>
@@ -601,6 +632,9 @@ function KnockoutView({
             myPubkey={myPubkey}
             identity={identity}
             t={t}
+            lang={lang}
+            homeResolved={apiForRound[i]?.home ?? null}
+            awayResolved={apiForRound[i]?.away ?? null}
           />
         ))}
       </div>
@@ -615,13 +649,16 @@ function KnockoutView({
 
 // ─── Knockout match card ──────────────────────────────────────────────────────
 function KoMatchRow({
-  match, matchNum, myPubkey, identity, t,
+  match, matchNum, myPubkey, identity, t, lang, homeResolved, awayResolved,
 }: {
   match: KoMatch;
   matchNum: number;
   myPubkey: string | null;
   identity?: Identity;
   t: import("@/lib/i18n").Translations;
+  lang: string;
+  homeResolved: { tla: string; name: string } | null;
+  awayResolved: { tla: string; name: string } | null;
 }) {
   const { pronos, myProno, publishing, publish } = usePronosticos(match.id, myPubkey);
   const [homeVal, setHomeVal] = useState("");
@@ -683,26 +720,30 @@ function KoMatchRow({
 
       {/* Teams + inputs */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 12px 8px" }}>
-        <div style={{ flex: 1, textAlign: "right" }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+          {homeResolved && <Flag team={homeResolved.tla} height={14} />}
           <span style={{
             fontFamily: "var(--condensed)", fontWeight: 900,
             fontSize: isFinal ? 14 : 12,
             color: isFinal ? "var(--gold)" : "var(--ink)",
             letterSpacing: isFinal ? 0.5 : 0,
+            textAlign: "right",
           }}>
-            {match.home}
+            {homeResolved ? teamName(homeResolved.tla, lang) : match.home}
           </span>
         </div>
         <ScoreInputs homeVal={homeVal} awayVal={awayVal} setHome={setHomeVal} setAway={setAwayVal} />
-        <div style={{ flex: 1, textAlign: "left" }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 6 }}>
           <span style={{
             fontFamily: "var(--condensed)", fontWeight: 900,
             fontSize: isFinal ? 14 : 12,
             color: isFinal ? "var(--gold)" : "var(--ink)",
             letterSpacing: isFinal ? 0.5 : 0,
+            textAlign: "left",
           }}>
-            {match.away}
+            {awayResolved ? teamName(awayResolved.tla, lang) : match.away}
           </span>
+          {awayResolved && <Flag team={awayResolved.tla} height={14} />}
         </div>
       </div>
 
