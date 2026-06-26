@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "issuer": "tsx watch issuer/index.ts",
+    "test": "tsx issuer/test/run-all.ts",
     "reconcile": "tsx issuer/reconcile-ownership.ts",
     "seed": "tsx issuer/seed.ts",
     "faces": "tsx scripts/fetch-faces.ts",
