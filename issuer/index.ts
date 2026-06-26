@@ -109,9 +109,28 @@ async function setOwnership(pk: string, num: number, count: number) {
   });
 }
 
+// Serializa lecturas+escrituras de ownership por clave "pubkey:num": sin esto,
+// dos operaciones concurrentes sobre la misma figu del mismo usuario (ej. una
+// compra y un robo de penales casi simultáneos) podían leer el mismo valor
+// viejo y una pisaba el incremento de la otra → figu perdida silenciosamente.
+const keyLocks = new Map<string, Promise<unknown>>();
+
+function withKeyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = keyLocks.get(key) ?? Promise.resolve();
+  const run = prev.then(fn, fn); // corre igual si la op anterior en la cola falló
+  const chained = run.catch(() => {}); // no trabar la cola por un error
+  keyLocks.set(key, chained);
+  chained.finally(() => {
+    if (keyLocks.get(key) === chained) keyLocks.delete(key); // nadie más encoló detrás
+  });
+  return run;
+}
+
 async function bump(pk: string, num: number, delta: number) {
-  const cur = await getOwnership(pk, num);
-  await setOwnership(pk, num, Math.max(0, cur + delta));
+  await withKeyLock(ownKey(pk, num), async () => {
+    const cur = await getOwnership(pk, num);
+    await setOwnership(pk, num, Math.max(0, cur + delta));
+  });
 }
 
 async function listOnce(filters: any[]): Promise<Event[]> {
@@ -338,15 +357,21 @@ async function settleBuySticker(order: Order) {
     return;
   }
 
-  // Revalidar tenencia del vendedor en el momento de liquidar.
-  const sellerHas = await getOwnership(seller, stickerNum);
-  if (sellerHas < 1) {
+  // Revalidar tenencia y descontarla en una sola operación atómica (mismo lock
+  // que bump()): si no, otra venta/robo concurrente del mismo vendedor podía
+  // pasar la validación y descontar igual, dejando el count en negativo-clamp.
+  const sold = await withKeyLock(ownKey(seller, stickerNum), async () => {
+    const sellerHas = await getOwnership(seller, stickerNum);
+    if (sellerHas < 1) return false;
+    await setOwnership(seller, stickerNum, sellerHas - 1);
+    return true;
+  });
+  if (!sold) {
     console.log("⚠️ el vendedor ya no tiene la figu — orden failed (reembolso manual)");
     updateOrder(paymentHash, { status: "failed" });
     return;
   }
 
-  await bump(seller, stickerNum, -1);
   await bump(buyer, stickerNum, +1);
 
   await publish({
