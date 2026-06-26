@@ -18,8 +18,9 @@
 // script escribe a disco.
 //
 // Uso:
-//   npx tsx issuer/reconcile-ownership.ts <pubkey>            (dry-run)
-//   npx tsx issuer/reconcile-ownership.ts <pubkey> --apply    (corrige)
+//   npx tsx issuer/reconcile-ownership.ts <pubkey>                  (dry-run)
+//   npx tsx issuer/reconcile-ownership.ts <pubkey> --apply          (corrige)
+//   npx tsx issuer/reconcile-ownership.ts <pubkey> --explain=<num>  (timeline de una figu puntual, para auditar a mano)
 import fs from "fs";
 import path from "path";
 import type { Event } from "nostr-tools";
@@ -115,6 +116,34 @@ async function main() {
     if (to === pubkey) bumpExpected(num, 1);
   }
   console.log(`   ${touchedSettlements} settlements involucran a este usuario`);
+
+  const explainArg = process.argv.find(a => a.startsWith("--explain="));
+  if (explainArg) {
+    const explainNum = Number(explainArg.slice("--explain=".length));
+    type TimelineEntry = { ts: number; line: string; delta: number };
+    const timeline: TimelineEntry[] = [];
+    for (const ev of grants) {
+      const copies = ev.tags.filter(t => t[0] === "sticker" && Number(t[1].split(":")[1]) === explainNum).length;
+      if (copies > 0) timeline.push({ ts: ev.created_at, line: `GRANT  ${ev.id.slice(0, 10)}… +${copies}`, delta: copies });
+    }
+    for (const ev of settlements) {
+      const from = tag(ev, "from"), to = tag(ev, "to"), sticker = tag(ev, "sticker");
+      if (!sticker || Number(sticker.split(":")[1]) !== explainNum) continue;
+      if (from !== pubkey && to !== pubkey) continue;
+      const action = tag(ev, "figus-action") ?? "buy-sticker";
+      if (from === pubkey) timeline.push({ ts: ev.created_at, line: `SETTLE ${ev.id.slice(0, 10)}… (${action}) -1 → ${to?.slice(0, 10)}…`, delta: -1 });
+      if (to === pubkey) timeline.push({ ts: ev.created_at, line: `SETTLE ${ev.id.slice(0, 10)}… (${action}) +1 ← ${from?.slice(0, 10)}…`, delta: +1 });
+    }
+    timeline.sort((a, b) => a.ts - b.ts);
+    console.log(`\n📜 Timeline figu #${explainNum} para ${pubkey.slice(0, 12)}…`);
+    let running = 0;
+    for (const t of timeline) {
+      running += t.delta;
+      console.log(`   ${new Date(t.ts * 1000).toISOString()}  ${t.line}  (running: ${running})`);
+    }
+    console.log(`   total reconstruido: ${Math.max(0, running)} · cache actual: ${getOwnershipForPubkey(pubkey)[explainNum] ?? 0}`);
+    return;
+  }
 
   const current = getOwnershipForPubkey(pubkey);
   const allNums = new Set<number>([...expected.keys(), ...Object.keys(current).map(Number)]);
