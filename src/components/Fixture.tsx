@@ -75,6 +75,17 @@ const SCHEDULE_TABLE: Record<string, Array<{ date: string; artH: number; artM: n
   "L:2": [{ date: "27 jun", artH: 18, artM: 0 }, { date: "27 jun", artH: 18, artM: 0 }],
 };
 
+const KO_MONTHS_ES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+
+// Convierte un utcDate ISO (de football-data.org) a fecha/hora ART, sin
+// depender de la zona horaria del navegador/servidor que ejecuta el cálculo
+// (aritmética sobre el timestamp + accessors UTC del resultado desplazado).
+function utcIsoToArt(utcDateIso: string): { date: string; artH: number } {
+  const artMs = new Date(utcDateIso).getTime() - 3 * 3600 * 1000; // ART = UTC-3
+  const art = new Date(artMs);
+  return { date: `${art.getUTCDate()} ${KO_MONTHS_ES[art.getUTCMonth()]}`, artH: art.getUTCHours() };
+}
+
 function getSchedule(group: string, mdIdx: number, matchIdx: number): ScheduleInfo {
   const entries = SCHEDULE_TABLE[`${group}:${mdIdx}`];
   if (!entries?.[matchIdx]) return { date: "—", utc: "—", art: "—", simultaneous: false };
@@ -635,6 +646,7 @@ function KnockoutView({
             lang={lang}
             homeResolved={apiForRound[i]?.home ?? null}
             awayResolved={apiForRound[i]?.away ?? null}
+            apiUtcDate={apiForRound[i]?.utcDate}
           />
         ))}
       </div>
@@ -649,7 +661,7 @@ function KnockoutView({
 
 // ─── Knockout match card ──────────────────────────────────────────────────────
 function KoMatchRow({
-  match, matchNum, myPubkey, identity, t, lang, homeResolved, awayResolved,
+  match, matchNum, myPubkey, identity, t, lang, homeResolved, awayResolved, apiUtcDate,
 }: {
   match: KoMatch;
   matchNum: number;
@@ -659,6 +671,7 @@ function KoMatchRow({
   lang: string;
   homeResolved: { tla: string; name: string } | null;
   awayResolved: { tla: string; name: string } | null;
+  apiUtcDate?: string;
 }) {
   const { pronos, myProno, publishing, publish } = usePronosticos(match.id, myPubkey);
   const [homeVal, setHomeVal] = useState("");
@@ -670,8 +683,13 @@ function KoMatchRow({
 
   const count = pronos.size;
   const isDirty = myProno === null || homeVal !== String(myProno.home) || awayVal !== String(myProno.away);
-  const artH = match.utcH;        // stored values are ART times
-  const utcH2 = match.utcH + 3;  // UTC = ART + 3
+  // football-data.org es la fuente oficial de fechas — si la trajo, pisa el
+  // valor hardcodeado de KO_ROUNDS (que quedó desactualizado: decía 3 jul
+  // para un partido que en realidad arranca el 28 jun).
+  const resolvedSchedule = apiUtcDate ? utcIsoToArt(apiUtcDate) : null;
+  const displayDate = resolvedSchedule?.date ?? match.date;
+  const artH = resolvedSchedule?.artH ?? match.utcH; // stored fallback values are ART times
+  const utcH2 = artH + 3 >= 24 ? artH + 3 - 24 : artH + 3; // UTC = ART + 3
   const utc = `${String(utcH2).padStart(2,"0")}:00`;
   const art = `${String(artH).padStart(2,"0")}:00`;
 
@@ -705,7 +723,7 @@ function KoMatchRow({
             P{String(matchNum).padStart(2,"0")}
           </span>
           <span style={{ fontFamily: "var(--condensed)", fontSize: 10, color: isFinal ? "var(--gold)" : "var(--muted)", fontWeight: 700 }}>
-            📅 {match.date}
+            📅 {displayDate}
           </span>
           {match.venue && (
             <span style={{ fontFamily: "var(--condensed)", fontSize: 9, color: "var(--muted)" }}>
