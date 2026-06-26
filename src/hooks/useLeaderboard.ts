@@ -48,21 +48,41 @@ export function useLeaderboard(enabled: boolean): { entries: LeaderEntry[]; load
       ];
       if (!pubkeys.length) { setLoading(false); return; }
 
-      // Paso 2: query individual por jugador, paginada — un jugador con muchas
-      // figuritas distintas tiene un 30100 addressable por cada una, y una sola
-      // consulta sin paginar puede truncarse en el límite del relay (visto en
-      // producción: un usuario con 1016 figus aparecía con 650 puntos).
-      // Con tope de concurrencia: si un relay está caído, no queremos sumar un
-      // intento de conexión por cada jugador a la vez (ver mapWithConcurrency).
-      const perPlayerEvents = await mapWithConcurrency(pubkeys, 6, pk =>
-        listAll({ kinds: [KIND.OWNERSHIP], authors: [ISSUER_PUBKEY], "#p": [pk] }, 5000)
-      );
+      // Paso 2: conteo por jugador. Primero se intenta vía el issuer
+      // (data/ownership.json, sin las limitaciones de paginación de los
+      // relays públicos — un jugador con muchas figuritas distintas tiene un
+      // 30100 addressable por cada una, y reconstruirlo desde relays queda
+      // truncado si algún relay no pagina bien `until` + filtros por tag;
+      // visto en producción: un usuario con 1016 figus daba 650, y ya
+      // paginando seguía dando 707). Los pubkeys que el issuer no devuelva
+      // (API no configurada, timeout) caen al camino de relays como antes.
+      const stickerCounts: Record<string, number> = {};
+      let pending = pubkeys;
+      try {
+        const res = await fetch("/api/leaderboard-counts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pubkeys }),
+        });
+        if (res.ok) {
+          const { counts } = await res.json() as { counts: Record<string, number> };
+          Object.assign(stickerCounts, counts);
+          pending = pubkeys.filter(pk => !(pk in counts));
+        }
+      } catch { /* issuer API no disponible — todos caen al fallback de relays */ }
       if (cancelled) return;
 
-      const stickerCounts: Record<string, number> = {};
-      for (let i = 0; i < pubkeys.length; i++) {
-        const own = parseOwnership(perPlayerEvents[i]);
-        stickerCounts[pubkeys[i]] = ALL_NUMBERS.filter(n => (own[n] ?? 0) > 0).length;
+      if (pending.length > 0) {
+        // Con tope de concurrencia: si un relay está caído, no queremos sumar
+        // un intento de conexión por cada jugador a la vez.
+        const fallbackEvents = await mapWithConcurrency(pending, 6, pk =>
+          listAll({ kinds: [KIND.OWNERSHIP], authors: [ISSUER_PUBKEY], "#p": [pk] }, 5000)
+        );
+        if (cancelled) return;
+        for (let i = 0; i < pending.length; i++) {
+          const own = parseOwnership(fallbackEvents[i]);
+          stickerCounts[pending[i]] = ALL_NUMBERS.filter(n => (own[n] ?? 0) > 0).length;
+        }
       }
 
       // 3. Perfiles (en paralelo con el procesamiento anterior ya terminó)
