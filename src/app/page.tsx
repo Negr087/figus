@@ -673,10 +673,15 @@ function HomeInner() {
     try {
       // El issuer valida que el vendedor tenga la figu y emite la factura; al cobrarla
       // transfiere la propiedad y paga al vendedor (menos fee). Race de 25s por Amber.
-      const { invoice } = await Promise.race([
+      // expectedPrice: si el vendedor republicó a otro precio mientras tanto, el
+      // issuer rechaza la orden en vez de cobrar el nuevo precio en silencio.
+      const { invoice, amountSats } = await Promise.race([
         requestOrderInvoice({
           action: "buy-sticker",
-          extraTags: [["a", addr(KIND.LISTING, listing.seller, listing.d)]],
+          extraTags: [
+            ["a", addr(KIND.LISTING, listing.seller, listing.d)],
+            ["expectedPrice", String(listing.price)],
+          ],
           signerMode: identity.mode,
         }),
         new Promise<never>((_, reject) =>
@@ -691,7 +696,7 @@ function HomeInner() {
         if (!buyDelivered.current) {
           buyDelivered.current = true;
           addSticker(listing.stickerNum);
-          notify(`✅ ¡Pago enviado! La #${listing.stickerNum} fue acreditada a tu álbum`);
+          notify(`✅ ¡Pago enviado (${amountSats} sats)! La #${listing.stickerNum} fue acreditada a tu álbum`);
           setTimeout(refresh, 3000);
         }
         setLocallyRemovedListings(prev =>
@@ -703,7 +708,10 @@ function HomeInner() {
         // timeouts de WebLN/NWC — no mostrar la factura tarde.
         setInvoice(null);
       } else {
-        setInvoiceAmount(listing.price);
+        // Monto real de la factura (amountSats), no el precio que se veía en
+        // pantalla — son siempre iguales gracias a expectedPrice, pero esto es
+        // lo que el comprador realmente paga si escanea/paga el QR.
+        setInvoiceAmount(amountSats);
         setInvoice(invoice);
       }
     } catch (e: any) {

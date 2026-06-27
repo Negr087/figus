@@ -180,28 +180,53 @@ async function handleOpenPack(buyer: string, packCount = 1): Promise<number[]> {
 // el pago. Reemplaza la entrega basada en zap receipts no verificados.
 
 // Valida un listing del mercado y devuelve sus datos si está vendible.
-async function loadValidListing(aTag: string): Promise<{ seller: string; num: number; price: number } | null> {
+type ListingResult =
+  | { ok: true; seller: string; num: number; price: number }
+  | { ok: false; reason: string };
+
+async function loadValidListing(aTag: string): Promise<ListingResult> {
   const [, seller, ...dParts] = aTag.split(":");
   const d = dParts.join(":");
-  if (!seller || !d) return null;
+  if (!seller || !d) return { ok: false, reason: "Coordenada de listing inválida" };
 
   const listings = await listOnce([{ kinds: [KIND.LISTING], authors: [seller], "#d": [d] }]);
   const listing = listings.sort((a, b) => b.created_at - a.created_at)[0];
-  if (!listing) { console.log("⚠️ listing no encontrado:", aTag); return null; }
+  if (!listing) {
+    console.log("⚠️ listing no encontrado:", aTag);
+    return { ok: false, reason: "Esa figurita ya no está en venta" };
+  }
   // El autor del listing debe coincidir con el seller del coordinate (Fix #4).
-  if (listing.pubkey !== seller) { console.log("⚠️ listing con autor inconsistente"); return null; }
-  if (!verifyEvent(listing)) { console.log("⚠️ listing con firma inválida"); return null; }
-  if (tag(listing, "status") === "sold") { console.log("⚠️ listing ya vendido"); return null; }
+  if (listing.pubkey !== seller) { console.log("⚠️ listing con autor inconsistente"); return { ok: false, reason: "Listing inválido" }; }
+  if (!verifyEvent(listing)) { console.log("⚠️ listing con firma inválida"); return { ok: false, reason: "Listing inválido" }; }
+  if (tag(listing, "status") === "sold") {
+    console.log("⚠️ listing ya vendido");
+    return { ok: false, reason: "Esa figurita ya se vendió" };
+  }
 
   const sticker = tag(listing, "sticker");
-  if (!sticker) return null;
+  if (!sticker) return { ok: false, reason: "Listing inválido" };
   const num = Number(sticker.split(":")[1]);
   const price = Number(tag(listing, "price") || "0");
 
   const sellerHas = await getOwnership(seller, num);
-  if (sellerHas < 1) { console.log("⚠️ el vendedor no tiene la figu"); return null; }
+  if (sellerHas < 1) {
+    console.log("⚠️ el vendedor no tiene la figu");
+    return { ok: false, reason: "El vendedor ya no tiene esa figurita disponible" };
+  }
 
-  return { seller, num, price };
+  return { ok: true, seller, num, price };
+}
+
+// Responde de inmediato con un ORDER_INVOICE con tag "error" en vez de dejar
+// que el cliente espere el timeout completo (~25-30s) sin saber por qué.
+async function rejectOrder(buyer: string, evId: string, action: string, reason: string): Promise<void> {
+  console.log(`⚠️ orden rechazada (${buyer.slice(0, 8)}…, ${action}): ${reason}`);
+  await publish({
+    kind: KIND.ORDER_INVOICE,
+    created_at: now(),
+    content: "",
+    tags: [["p", buyer], ["e", evId], ["figus-action", action], ["error", reason]],
+  });
 }
 
 // Recibe un ORDER_REQUEST firmado, valida, emite la factura y responde con ORDER_INVOICE.
@@ -245,8 +270,27 @@ async function handleOrderRequest(ev: Event) {
     const aTag = tag(ev, "a");
     if (!aTag) return console.log("⚠️ buy-sticker sin coordinate 'a'");
     const listing = await loadValidListing(aTag);
-    if (!listing) return; // ya logueó el motivo
-    if (listing.seller === buyer) return console.log("⚠️ el comprador no puede ser el vendedor");
+    if (!listing.ok) {
+      // Antes esto solo logueaba y dejaba al comprador esperando ~25-30s hasta
+      // el timeout del cliente (la "figurita fantasma": parece comprable pero
+      // ya no lo es) — ahora se le avisa al instante por qué no se puede.
+      return rejectOrder(buyer, ev.id, action, listing.reason);
+    }
+    if (listing.seller === buyer) return rejectOrder(buyer, ev.id, action, "No podés comprar tu propia figurita");
+
+    // El vendedor puede republicar el listing (mismo d-tag, precio nuevo) entre
+    // que el comprador lo vio en pantalla y que esta orden llega — sin este
+    // chequeo se le cobraba el precio vigente AHORA, distinto del que aceptó.
+    // El cliente manda el precio que vio; si no coincide, se rechaza en vez de
+    // cobrar de más en silencio.
+    const expectedPriceRaw = tag(ev, "expectedPrice");
+    const expectedPrice = expectedPriceRaw !== undefined ? Number(expectedPriceRaw) : undefined;
+    if (expectedPrice !== undefined && Number.isFinite(expectedPrice) && expectedPrice !== listing.price) {
+      console.log(`⚠️ precio cambió para ${aTag}: esperaba ${expectedPrice}, ahora ${listing.price}`);
+      return rejectOrder(buyer, ev.id, action,
+        `El precio cambió a ${listing.price} sats (era ${expectedPrice}). Volvé a intentar si todavía la querés.`);
+    }
+
     amountSats = listing.price;
     listingCoord = aTag;
     seller = listing.seller;
