@@ -155,7 +155,7 @@ function err(message: string, status: number) {
 }
 
 async function fetchUserLud16(pubkey: string): Promise<string | null> {
-  const relays = (process.env.NEXT_PUBLIC_RELAYS ?? "wss://relay.damus.io,wss://nos.lol")
+  const relays = (process.env.NEXT_PUBLIC_RELAYS ?? "wss://relay.lacrypta.ar,wss://relay.damus.io,wss://nos.lol")
     .split(",")
     .map((r) => r.trim())
     .filter(Boolean);
@@ -247,7 +247,7 @@ async function fetchOwnedStickers(pubkey: string, issuerPubkey: string, required
   // ── Opción C: query por relay (fallback) ──────────────────────────────────
   const albumId = process.env.NEXT_PUBLIC_ALBUM_ID ?? "mundial-2026";
   const dTags = requiredNums.map((n) => `${pubkey}:${albumId}:${n}`);
-  const relays = (process.env.NEXT_PUBLIC_RELAYS ?? "wss://relay.damus.io,wss://nos.lol")
+  const relays = (process.env.NEXT_PUBLIC_RELAYS ?? "wss://relay.lacrypta.ar,wss://relay.damus.io,wss://nos.lol")
     .split(",").map((r) => r.trim()).filter(Boolean);
 
   const perRelay = await Promise.allSettled(

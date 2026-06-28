@@ -16,7 +16,7 @@ import {
 } from "nostr-tools";
 
 export const RELAYS = (process.env.NEXT_PUBLIC_RELAYS ||
-  "wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net,wss://nostr.mom")
+  "wss://relay.lacrypta.ar,wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net,wss://nostr.mom")
   .split(",")
   .map((r) => r.trim())
   .filter(Boolean);

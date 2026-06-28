@@ -34,7 +34,7 @@ export const ISSUER_PUBKEY = process.env.NEXT_PUBLIC_ISSUER_PUBKEY || "";
 export const ISSUER_LN_ADDRESS = process.env.NEXT_PUBLIC_ISSUER_LN_ADDRESS || "";
 
 export const RELAYS = (process.env.NEXT_PUBLIC_RELAYS ||
-  "wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net,wss://nostr.mom")
+  "wss://relay.lacrypta.ar,wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net,wss://nostr.mom")
   .split(",")
   .map((r) => r.trim())
   .filter(Boolean);

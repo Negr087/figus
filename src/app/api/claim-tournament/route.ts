@@ -140,7 +140,7 @@ function err(message: string, status: number) {
 }
 
 async function fetchUserLud16(pubkey: string): Promise<string | null> {
-  const relays = (process.env.NEXT_PUBLIC_RELAYS ?? "wss://relay.damus.io,wss://nos.lol")
+  const relays = (process.env.NEXT_PUBLIC_RELAYS ?? "wss://relay.lacrypta.ar,wss://relay.damus.io,wss://nos.lol")
     .split(",")
     .map((r) => r.trim())
     .filter(Boolean);
