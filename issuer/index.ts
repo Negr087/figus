@@ -681,13 +681,16 @@ async function main() {
     });
   }
 
-  // Poller de cobro como fallback: corre cada 5 min por si la notificación no
-  // llega (wallet sin soporte de kind 23196). El barrido es SECUENCIAL, con pausa
-  // entre lookups, y nunca se solapa con el anterior: cada lookup NWC mantiene un
-  // socket vivo hasta 20s y las órdenes impagas se acumulan — un barrido paralelo
-  // termina saturando al proveedor de la wallet (lookups que fallan → ninguna
-  // orden pagada se confirma más).
-  const POLL_MS = Number(process.env.ORDER_POLL_MS || "300000"); // 5 min fallback
+  // Poller de cobro como fallback: corre cada 45s por si la notificación no
+  // llega (wallet sin soporte de kind 23196, o el listener quedó zombie). El
+  // cliente solo espera 90s el GRANT, así que un fallback de 5 min siempre
+  // llegaba tarde — el comprador veía "no llegaron las figus" con la plata ya
+  // cobrada. El barrido es SECUENCIAL, con pausa entre lookups, y nunca se
+  // solapa con el anterior: cada lookup NWC mantiene un socket vivo hasta 20s y
+  // las órdenes impagas se acumulan — un barrido paralelo termina saturando al
+  // proveedor de la wallet (lookups que fallan → ninguna orden pagada se
+  // confirma más).
+  const POLL_MS = Number(process.env.ORDER_POLL_MS || "45000"); // 45s fallback
   const ORDER_TTL_S = Number(process.env.ORDER_TTL_MIN || "30") * 60;
   const LOOKUP_PACE_MS = 5000;
   let sweeping = false;
@@ -698,9 +701,17 @@ async function main() {
       for (const o of pendingOrders()) {
         // Una factura impaga no se concilia para siempre: vencida la TTL se expira
         // y deja de generar lookups NWC en cada tick. El comprador pide otra.
+        // Antes de tirarla, un último lookup: si el motivo de no confirmar fueron
+        // lookups fallidos (relay/wallet caída) y no que nunca se pagó, esto es
+        // guita cobrada que se iba a perder en silencio — se loguea como alerta
+        // distinta de "nunca pagada" para poder reconciliar a mano.
         if (now() - o.ts > ORDER_TTL_S) {
-          updateOrder(o.paymentHash, { status: "expired" });
-          console.log(`🕓 orden ${o.paymentHash.slice(0, 10)}… expirada sin pago (${o.action})`);
+          await fulfillOrder(o.paymentHash).catch((e) => console.error("fulfill error:", e));
+          const after = getOrder(o.paymentHash);
+          if (after?.status === "pending") {
+            updateOrder(o.paymentHash, { status: "expired" });
+            console.log(`🕓 orden ${o.paymentHash.slice(0, 10)}… expirada sin pago (${o.action})`);
+          }
           continue;
         }
         await fulfillOrder(o.paymentHash).catch((e) => console.error("fulfill error:", e));

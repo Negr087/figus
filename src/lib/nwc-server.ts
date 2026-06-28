@@ -182,6 +182,38 @@ export function listenNwcPayments(
   let closed = false;
   let ws: WebSocket | null = null;
 
+  // Heartbeat: si el relay deja de responder pings sin cerrar el socket
+  // ("zombie" — visto en producción con relays que se cuelgan en silencio),
+  // ws nunca dispara "error"/"close" y el listener se queda escuchando un
+  // socket muerto indefinidamente — ninguna compra se confirma por
+  // notificación instantánea hasta el próximo restart manual. Forzamos un
+  // ping cada 30s y, si no llega el pong en 10s, terminamos el socket
+  // nosotros mismos para que dispare "close" y reconecte.
+  const HEARTBEAT_MS = 30_000;
+  const PONG_TIMEOUT_MS = 10_000;
+  let heartbeatIv: ReturnType<typeof setInterval> | null = null;
+  let pongTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function stopHeartbeat() {
+    if (heartbeatIv) clearInterval(heartbeatIv);
+    if (pongTimer) clearTimeout(pongTimer);
+    heartbeatIv = pongTimer = null;
+  }
+
+  function startHeartbeat(socket: WebSocket) {
+    heartbeatIv = setInterval(() => {
+      if (pongTimer) return; // ya esperando un pong anterior
+      try { socket.ping(); } catch { return; }
+      pongTimer = setTimeout(() => {
+        console.log("🔔 NWC listener sin respuesta — reconectando");
+        try { socket.terminate(); } catch {}
+      }, PONG_TIMEOUT_MS);
+    }, HEARTBEAT_MS);
+    socket.on("pong", () => {
+      if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
+    });
+  }
+
   function connect() {
     if (closed) return;
     const relayUrl = conn.relays[0];
@@ -195,6 +227,7 @@ export function listenNwcPayments(
         since: Math.floor(Date.now() / 1000) - 300, // últimos 5 min al reconectar
       }]));
       console.log("🔔 NWC notification listener conectado");
+      startHeartbeat(ws!);
     });
 
     ws.on("message", (data: Buffer) => {
@@ -217,12 +250,12 @@ export function listenNwcPayments(
       } catch { /* ignorar mensajes ajenos o errores de decrypt */ }
     });
 
-    ws.on("error", () => { if (!closed) setTimeout(connect, 5000); });
-    ws.on("close", () => { if (!closed) setTimeout(connect, 5000); });
+    ws.on("error", () => { stopHeartbeat(); if (!closed) setTimeout(connect, 5000); });
+    ws.on("close", () => { stopHeartbeat(); if (!closed) setTimeout(connect, 5000); });
   }
 
   connect();
-  return () => { closed = true; try { ws?.close(); } catch {} };
+  return () => { closed = true; stopHeartbeat(); try { ws?.close(); } catch {} };
 }
 
 // ── Fetch a Nostr event from a relay (Node.js WebSocket) ──────────────────────
