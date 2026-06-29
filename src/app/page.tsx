@@ -800,7 +800,7 @@ function HomeInner() {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {/* Logo */}
-          <img src="/logomundial.png" alt="Figus Mundial 2026" width={40} height={40} style={{ objectFit: "contain" }} />
+          <img src="/logomundial.webp" alt="Figus Mundial 2026" width={40} height={40} style={{ objectFit: "contain" }} />
           <div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
               <span style={{ fontFamily: "var(--display)", fontSize: 20, lineHeight: 1, color: "var(--gold)" }}>
@@ -1360,7 +1360,7 @@ function LandingPage({
       {/* ── HERO ── */}
       <section className="fade-in" style={{ textAlign: "center", padding: "56px 0 52px" }}>
         <img
-          src="/logomundial.png"
+          src="/logomundial.webp"
           alt="Figus Mundial 2026"
           width={88}
           height={88}

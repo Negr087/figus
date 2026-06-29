@@ -581,7 +581,7 @@ export function PackReveal({
                 alignItems: "center", justifyContent: "center",
                 gap: 6,
               }}>
-                <img src="/logomundial.png" alt="" width={74} height={74} style={{ objectFit: "contain", filter: "drop-shadow(0 0 14px rgba(232,185,35,.5))" }} />
+                <img src="/logomundial.webp" alt="" width={74} height={74} style={{ objectFit: "contain", filter: "drop-shadow(0 0 14px rgba(232,185,35,.5))" }} />
                 <div style={{ fontFamily: "var(--display)", fontSize: 34, color: "var(--gold)", lineHeight: 1, letterSpacing: 2, textShadow: "0 2px 0 rgba(0,0,0,.45)" }}>
                   FIGUS
                 </div>

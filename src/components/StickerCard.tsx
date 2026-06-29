@@ -354,11 +354,11 @@ function Silhouette({ type, light }: { type: string; light: boolean }) {
 }
 
 // ─── Squad image with fallback chain ─────────────────────────────────────────
-// Tries: /faces/{team}/13.jpg (foto real del plantel) → /squad-{team}.png → /squad.png → SVG
+// Tries: /faces/{team}/13.webp (foto real del plantel) → /squad-{team}.webp → /squad.webp → SVG
 
 function SquadImage({ team, light }: { team: string; light: boolean }) {
   const hasRealPhoto = ((FACES as Record<string, number[]>)[team] ?? []).includes(13);
-  const [src, setSrc] = useState(hasRealPhoto ? `/faces/${team}/13.jpg` : `/squad-${team}.png`);
+  const [src, setSrc] = useState(hasRealPhoto ? `/faces/${team}/13.webp` : `/squad-${team}.webp`);
   const [useSvg, setUseSvg] = useState(false);
 
   if (useSvg) return <Silhouette type="squad" light={light} />;
@@ -368,8 +368,8 @@ function SquadImage({ team, light }: { team: string; light: boolean }) {
       src={src}
       alt=""
       onError={() => {
-        if (src.startsWith("/faces/")) setSrc(`/squad-${team}.png`);
-        else if (!src.endsWith("/squad.png")) setSrc("/squad.png");
+        if (src.startsWith("/faces/")) setSrc(`/squad-${team}.webp`);
+        else if (!src.endsWith("/squad.webp")) setSrc("/squad.webp");
         else setUseSvg(true);
       }}
       style={{
@@ -382,7 +382,7 @@ function SquadImage({ team, light }: { team: string; light: boolean }) {
 }
 
 // ─── Shield image with fallback ───────────────────────────────────────────────
-// Tries: /shield-{team}.png → SVG silhouette
+// Tries: /shield-{team}.webp → SVG silhouette
 
 function ShieldImage({ team, light }: { team: string; light: boolean }) {
   const [useSvg, setUseSvg] = useState(false);
@@ -391,7 +391,7 @@ function ShieldImage({ team, light }: { team: string; light: boolean }) {
 
   return (
     <img
-      src={`/shield-${team}.png`}
+      src={`/shield-${team}.webp`}
       alt=""
       onError={() => setUseSvg(true)}
       style={{
@@ -506,10 +506,10 @@ export function StickerFace({
           ) : hasFace ? (
             // No mixBlendMode: real photos must not be tinted by the gradient
             <img
-              src={`/faces/${s.team}/${facePos}.jpg`}
+              src={`/faces/${s.team}/${facePos}.webp`}
               alt=""
               onError={(e) => {
-                e.currentTarget.src = `/ostrich-${ostrichTeam}.png`;
+                e.currentTarget.src = `/ostrich-${ostrichTeam}.webp`;
               }}
               style={{
                 width: "100%",
@@ -521,15 +521,10 @@ export function StickerFace({
             />
           ) : !isSVGType ? (
             <img
-              src={`/ostrich-${ostrichTeam}.png`}
+              src={`/ostrich-${ostrichTeam}.webp`}
               alt=""
               onError={(e) => {
-                const img = e.currentTarget as HTMLImageElement;
-                if (img.src.endsWith(".png")) {
-                  img.src = `/ostrich-${ostrichTeam}.jpeg`;
-                } else {
-                  img.src = "/ostrich.png";
-                }
+                e.currentTarget.src = "/ostrich.webp";
               }}
               style={{
                 width: "100%",

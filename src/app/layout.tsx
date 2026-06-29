@@ -19,8 +19,8 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Bungee&family=Roboto+Condensed:wght@400;700;900&family=Sora:wght@400;600;700&display=swap"
           rel="stylesheet"
         />
-        <link rel="icon" type="image/png" href="/logomundial.png" />
-        <link rel="apple-touch-icon" href="/logomundial.png" />
+        <link rel="icon" type="image/webp" href="/logomundial.webp" />
+        <link rel="apple-touch-icon" href="/logomundial.webp" />
       </head>
       <body>{children}</body>
     </html>

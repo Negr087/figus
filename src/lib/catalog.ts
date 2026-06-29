@@ -339,12 +339,11 @@ export const FWC_CHAMPION_TEAMS: Record<number, string> = {
   20: "arg", // Argentina 2022
 };
 
-// Stickers FWC con imagen real en /public/fwc-{num}.{ext}
+// Stickers FWC con imagen real en /public/fwc-{num}.webp
 export const FWC_IMAGE_STICKERS = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
 
-const FWC_WEBP = new Set([3, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19]);
 export function fwcImageSrc(num: number): string {
-  return `/fwc-${num}.${FWC_WEBP.has(num) ? "webp" : "png"}`;
+  return `/fwc-${num}.webp`;
 }
 
 // ─── Team flags (Unicode emoji) ───────────────────────────────────────────────
