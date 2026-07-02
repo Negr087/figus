@@ -243,6 +243,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   const [claimingPrize,  setClaimingPrize]  = useState(false);
   const [prizeClaimed,   setPrizeClaimed]   = useState(false);
   const [scheduledDateTime, setScheduledDateTime] = useState(defaultScheduledDateTime);
+  const [selectedMaxPlayers, setSelectedMaxPlayers] = useState<4 | 8>(8);
 
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [tab,            setTab]            = useState<"groups" | "bracket" | "matches">("groups");
@@ -501,9 +502,13 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
         ? Math.floor(new Date(scheduledDateTime).getTime() / 1000)
         : null;
 
+      const creatorTags: string[][] = [];
+      if (scheduledAtUnix) creatorTags.push(["scheduledAt", String(scheduledAtUnix)]);
+      if (willBeCreator) creatorTags.push(["maxPlayers", String(selectedMaxPlayers)]);
+
       const { invoice, amountSats } = await requestOrderInvoice({
         action: "tournament-register" as any,
-        extraTags: scheduledAtUnix ? [["scheduledAt", String(scheduledAtUnix)]] : undefined,
+        extraTags: creatorTags.length ? creatorTags : undefined,
         signerMode: identity.mode,
       });
       const paid = await tryPayInvoice(invoice);
@@ -640,6 +645,36 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
                 <>
                   {data.registrations.length === 0 ? (
                     <div style={{ marginBottom: 10 }}>
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ display: "block", fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", fontWeight: 700, marginBottom: 6 }}>
+                          👥 Cantidad de jugadores
+                        </label>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          {([4, 8] as const).map(n => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => setSelectedMaxPlayers(n)}
+                              style={{
+                                padding: "6px 16px",
+                                borderRadius: 6,
+                                border: selectedMaxPlayers === n ? "1.5px solid var(--gold)" : "1px solid var(--line)",
+                                background: selectedMaxPlayers === n ? "rgba(232,185,35,.15)" : "var(--panel2)",
+                                color: selectedMaxPlayers === n ? "var(--gold)" : "var(--muted)",
+                                fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 13,
+                                cursor: "pointer",
+                              }}
+                            >
+                              {n} jugadores
+                            </button>
+                          ))}
+                        </div>
+                        {selectedMaxPlayers === 4 && (
+                          <div style={{ marginTop: 5, fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)" }}>
+                            2 zonas de 2 · el ganador de cada zona va directo a la final
+                          </div>
+                        )}
+                      </div>
                       <label style={{ display: "block", fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", fontWeight: 700, marginBottom: 4 }}>
                         📅 Elegí cuándo arranca el torneo (los demás lo van a ver al inscribirse)
                       </label>

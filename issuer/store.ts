@@ -36,9 +36,9 @@ export interface Order {
   listingCoord?: string;
   seller?: string;
   stickerNum?: number;
-  // tournament-register: scheduled start date/time picked by the creator
-  // (only meaningful for the first registrant — ignored otherwise)
+  // tournament-register: values set by the creator (first registrant only)
   scheduledAt?: number;
+  maxPlayers?: number; // 4 or 8
 }
 
 type Orders = Record<string, Order>;

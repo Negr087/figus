@@ -17,8 +17,8 @@ const ROUNDS_BY_PHASE: Record<"group" | "semi" | "final", number> = {
   final: 10, // 5 kicks each
 };
 export const ENTRY_SATS       = 210;
-export const KICKER_TIMEOUT_S = 3 * 60; // 3 min — waiting_commit / waiting_reveal
-export const KEEPER_TIMEOUT_S = 3 * 60; // 3 min — waiting_block (goalkeeper absent → gol)
+export const KICKER_TIMEOUT_S = 60; // 1 min — waiting_commit / waiting_reveal
+export const KEEPER_TIMEOUT_S = 60; // 1 min — waiting_block (goalkeeper absent → gol)
 const MIN_SCHEDULE_LEAD_S = 60;            // scheduledAt must be at least 1 min out
 const MAX_SCHEDULE_LEAD_S = 30 * 24 * 3600; // ...and at most 30 days out
 
@@ -184,11 +184,11 @@ export function isRegistered(pubkey: string): boolean {
   return t?.registrations.some(r => r.pubkey === pubkey) ?? false;
 }
 
-export async function registerPlayer(pubkey: string, ownedUnique: number, scheduledAt?: number): Promise<{ ok: boolean; error?: string }> {
+export async function registerPlayer(pubkey: string, ownedUnique: number, scheduledAt?: number, maxPlayers?: number): Promise<{ ok: boolean; error?: string }> {
   const t = getTournament();
   if (t.status !== "registering") return { ok: false, error: "El torneo ya comenzó" };
   if (t.registrations.some(r => r.pubkey === pubkey)) return { ok: false, error: "Ya estás inscripto en este torneo" };
-  if (t.registrations.length >= MAX_PLAYERS) return { ok: false, error: "El torneo está lleno" };
+  if (t.registrations.length >= t.maxPlayers) return { ok: false, error: "El torneo está lleno" };
 
   const strength = Math.min(1, ownedUnique / ALL_NUMBERS.length);
   const isFirst = !t.creatorPubkey;
@@ -204,11 +204,12 @@ export async function registerPlayer(pubkey: string, ownedUnique: number, schedu
     }
     t.creatorPubkey = pubkey;
     t.scheduledAt = Math.floor(scheduledAt!);
+    if (maxPlayers === 4 || maxPlayers === 8) t.maxPlayers = maxPlayers;
   }
   t.registrations.push({ pubkey, registeredAt: now(), strength });
   t.prizePool += ENTRY_SATS;
 
-  if (t.registrations.length === MAX_PLAYERS) {
+  if (t.registrations.length === t.maxPlayers) {
     // All players in — the scheduled date is a MINIMUM start time: if it's
     // already in the past (or was never set), fall back to a 5-minute buffer
     // so the DM notification still has time to go out.
@@ -220,7 +221,7 @@ export async function registerPlayer(pubkey: string, ownedUnique: number, schedu
     writeTournament(t);
   }
 
-  console.log(`🏆 Torneo: ${pubkey.slice(0, 8)}… inscripto (${t.registrations.length}/${MAX_PLAYERS})`);
+  console.log(`🏆 Torneo: ${pubkey.slice(0, 8)}… inscripto (${t.registrations.length}/${t.maxPlayers})`);
   return { ok: true };
 }
 
@@ -278,13 +279,14 @@ async function publishMatchEvent(tournamentId: string, match: TournamentMatch): 
 
 async function startTournament(t: Tournament): Promise<void> {
   const shuffled = [...t.registrations].sort(() => Math.random() - 0.5);
-  const groupA = shuffled.slice(0, 4).map(r => r.pubkey);
-  const groupB = shuffled.slice(4, 8).map(r => r.pubkey);
+  const half = t.maxPlayers / 2;
+  const groupA = shuffled.slice(0, half).map(r => r.pubkey);
+  const groupB = shuffled.slice(half).map(r => r.pubkey);
   t.groups = { A: groupA, B: groupB };
   t.status = "group_stage";
   t.matches = [];
 
-  // Round-robin within each group: C(4,2) = 6 matches per group
+  // Round-robin within each group: C(n,2) matches per group
   for (const [group, players] of [["A", groupA], ["B", groupB]] as [Group, string[]][]) {
     let idx = 0;
     for (let i = 0; i < players.length; i++) {
@@ -297,9 +299,9 @@ async function startTournament(t: Tournament): Promise<void> {
 
   writeTournament(t);
 
-  // Publish TOURNEY_MATCH events for all group matches
+  const totalMatches = t.matches.length;
   await Promise.allSettled(t.matches.map(m => publishMatchEvent(t.id, m)));
-  console.log(`🏆 Torneo ${t.id}: fase de grupos iniciada (12 partidos)`);
+  console.log(`🏆 Torneo ${t.id}: fase de grupos iniciada (${totalMatches} partidos, ${t.maxPlayers} jugadores)`);
 }
 
 // ── Commit / Block / Reveal handlers ─────────────────────────────────────────
@@ -581,15 +583,28 @@ async function checkPhaseComplete(t: Tournament): Promise<void> {
     const standB = computeStandings(t.groups!.B, gm.filter(m => m.group === "B"));
     t.standings = { A: standA, B: standB };
 
-    const [a1, a2] = standA.map(s => s.pubkey);
-    const [b1, b2] = standB.map(s => s.pubkey);
-    const semi1 = makeMatch("semi1", "semi", undefined, a1, b2, t.id);
-    const semi2 = makeMatch("semi2", "semi", undefined, b1, a2, t.id);
-    t.matches.push(semi1, semi2);
-    t.status = "semi";
-    writeTournament(t);
-    await Promise.allSettled([publishMatchEvent(t.id, semi1), publishMatchEvent(t.id, semi2)]);
-    console.log("🏆 Fase de grupos terminada → semifinales creadas");
+    if (t.maxPlayers <= 4) {
+      // 4-player bracket: top 1 from each group → final directly (no semi phase)
+      const [a1] = standA.map(s => s.pubkey);
+      const [b1] = standB.map(s => s.pubkey);
+      const finalMatch = makeMatch("final", "final", undefined, a1, b1, t.id);
+      t.matches.push(finalMatch);
+      t.status = "final";
+      writeTournament(t);
+      await publishMatchEvent(t.id, finalMatch);
+      console.log("🏆 Fase de grupos terminada (4p) → final directa creada");
+    } else {
+      // 8-player bracket: top 2 from each group → semis
+      const [a1, a2] = standA.map(s => s.pubkey);
+      const [b1, b2] = standB.map(s => s.pubkey);
+      const semi1 = makeMatch("semi1", "semi", undefined, a1, b2, t.id);
+      const semi2 = makeMatch("semi2", "semi", undefined, b1, a2, t.id);
+      t.matches.push(semi1, semi2);
+      t.status = "semi";
+      writeTournament(t);
+      await Promise.allSettled([publishMatchEvent(t.id, semi1), publishMatchEvent(t.id, semi2)]);
+      console.log("🏆 Fase de grupos terminada → semifinales creadas");
+    }
 
   } else if (t.status === "semi") {
     const sm = t.matches.filter(m => m.phase === "semi");

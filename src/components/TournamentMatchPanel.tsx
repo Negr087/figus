@@ -194,7 +194,7 @@ export function TournamentMatchPanel({
       const t = setTimeout(() => setShowVictory(false), 4500);
       return () => clearTimeout(t);
     }
-    if (iAmInMatch) {
+    if (iAmInMatch && match.winner !== null) {
       setShowDefeat(true);
       const t = setTimeout(() => setShowDefeat(false), 4500);
       return () => clearTimeout(t);
@@ -327,7 +327,7 @@ export function TournamentMatchPanel({
         </div>
         <div style={{ fontSize: 9, fontFamily: "var(--condensed)", color: "var(--muted)", letterSpacing: 1 }}>
           {isComplete
-            ? `COMPLETADO · Ganó ${winnerName}`
+            ? (winnerName ? `COMPLETADO · Ganó ${winnerName}` : "COMPLETADO · EMPATE")
             : isSuddenDeath
             ? "MUERTE SÚBITA"
             : `RONDA ${Math.min(currentRound, match.totalRounds)}/${match.totalRounds}`}

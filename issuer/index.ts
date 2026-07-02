@@ -265,6 +265,7 @@ async function handleOrderRequest(ev: Event) {
   let seller: string | undefined;
   let stickerNum: number | undefined;
   let scheduledAt: number | undefined;
+  let maxPlayers: number | undefined;
 
   if (action === "buy-sticker") {
     const aTag = tag(ev, "a");
@@ -303,6 +304,11 @@ async function handleOrderRequest(ev: Event) {
       const parsed = Number(rawScheduledAt);
       if (Number.isFinite(parsed)) scheduledAt = parsed;
     }
+    const rawMaxPlayers = tag(ev, "maxPlayers");
+    if (rawMaxPlayers) {
+      const parsed = Number(rawMaxPlayers);
+      if (parsed === 4 || parsed === 8) maxPlayers = parsed;
+    }
   } else {
     amountSats = PACK_PRICE[action as keyof typeof PACK_PRICE];
   }
@@ -319,7 +325,7 @@ async function handleOrderRequest(ev: Event) {
 
   putOrder({
     paymentHash, buyer, action, amountSats, status: "pending",
-    ts: now(), listingCoord, seller, stickerNum, scheduledAt,
+    ts: now(), listingCoord, seller, stickerNum, scheduledAt, maxPlayers,
   });
 
   await publish({
@@ -385,7 +391,7 @@ async function fulfillOrderInner(order: Order, trustedSats?: number) {
   } else if (order.action === "tournament-register") {
     const ownedData = getOwnershipForPubkey(order.buyer);
     const ownedUnique = Object.values(ownedData).filter(c => c > 0).length;
-    const result = await registerPlayer(order.buyer, ownedUnique, order.scheduledAt);
+    const result = await registerPlayer(order.buyer, ownedUnique, order.scheduledAt, order.maxPlayers);
     updateOrder(paymentHash, { status: result.ok ? "granted" : "failed" });
     console.log(`🏆 registro torneo ${order.buyer.slice(0, 8)}…: ${result.ok ? "ok" : result.error}`);
   } else {
