@@ -307,7 +307,7 @@ async function handleOrderRequest(ev: Event) {
     const rawMaxPlayers = tag(ev, "maxPlayers");
     if (rawMaxPlayers) {
       const parsed = Number(rawMaxPlayers);
-      if (parsed === 4 || parsed === 8) maxPlayers = parsed;
+      if (Number.isInteger(parsed) && parsed >= 4 && parsed <= 32) maxPlayers = parsed;
     }
   } else {
     amountSats = PACK_PRICE[action as keyof typeof PACK_PRICE];

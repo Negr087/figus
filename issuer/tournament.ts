@@ -279,12 +279,24 @@ async function publishMatchEvent(tournamentId: string, match: TournamentMatch): 
 
 async function startTournament(t: Tournament): Promise<void> {
   const shuffled = [...t.registrations].sort(() => Math.random() - 0.5);
-  const half = t.maxPlayers / 2;
-  const groupA = shuffled.slice(0, half).map(r => r.pubkey);
-  const groupB = shuffled.slice(half).map(r => r.pubkey);
-  t.groups = { A: groupA, B: groupB };
   t.status = "group_stage";
   t.matches = [];
+
+  let groupA: string[];
+  let groupB: string[];
+
+  if (t.maxPlayers <= 5) {
+    // Single group: all players in A, B empty — everyone plays everyone
+    groupA = shuffled.map(r => r.pubkey);
+    groupB = [];
+  } else {
+    // Two groups: split as evenly as possible (ceil gets the extra player on odd counts)
+    const half = Math.ceil(t.maxPlayers / 2);
+    groupA = shuffled.slice(0, half).map(r => r.pubkey);
+    groupB = shuffled.slice(half).map(r => r.pubkey);
+  }
+
+  t.groups = { A: groupA, B: groupB };
 
   // Round-robin within each group: C(n,2) matches per group
   for (const [group, players] of [["A", groupA], ["B", groupB]] as [Group, string[]][]) {
@@ -292,7 +304,7 @@ async function startTournament(t: Tournament): Promise<void> {
     for (let i = 0; i < players.length; i++) {
       for (let j = i + 1; j < players.length; j++) {
         const id = `g-${group}-${idx++}`;
-        t.matches.push(makeMatch(id, "group", group, players[i], players[j], t.id));
+        t.matches.push(makeMatch(id, "group", group as Group, players[i], players[j], t.id));
       }
     }
   }
@@ -301,7 +313,10 @@ async function startTournament(t: Tournament): Promise<void> {
 
   const totalMatches = t.matches.length;
   await Promise.allSettled(t.matches.map(m => publishMatchEvent(t.id, m)));
-  console.log(`🏆 Torneo ${t.id}: fase de grupos iniciada (${totalMatches} partidos, ${t.maxPlayers} jugadores)`);
+  const format = groupB.length === 0
+    ? `todos contra todos (${t.maxPlayers}p)`
+    : `2 grupos de ${groupA.length}+${groupB.length} (${t.maxPlayers}p)`;
+  console.log(`🏆 Torneo ${t.id}: fase de grupos iniciada — ${format}, ${totalMatches} partidos`);
 }
 
 // ── Commit / Block / Reveal handlers ─────────────────────────────────────────
@@ -583,18 +598,17 @@ async function checkPhaseComplete(t: Tournament): Promise<void> {
     const standB = computeStandings(t.groups!.B, gm.filter(m => m.group === "B"));
     t.standings = { A: standA, B: standB };
 
-    if (t.maxPlayers <= 4) {
-      // 4-player bracket: top 1 from each group → final directly (no semi phase)
-      const [a1] = standA.map(s => s.pubkey);
-      const [b1] = standB.map(s => s.pubkey);
-      const finalMatch = makeMatch("final", "final", undefined, a1, b1, t.id);
+    if (t.groups!.B.length === 0) {
+      // Single group (≤5 players): top 2 → final directly (no semi phase)
+      const [a1, a2] = standA.map(s => s.pubkey);
+      const finalMatch = makeMatch("final", "final", undefined, a1, a2, t.id);
       t.matches.push(finalMatch);
       t.status = "final";
       writeTournament(t);
       await publishMatchEvent(t.id, finalMatch);
-      console.log("🏆 Fase de grupos terminada (4p) → final directa creada");
+      console.log(`🏆 Fase de grupos terminada (${t.maxPlayers}p) → final directa: ${a1.slice(0,8)} vs ${a2.slice(0,8)}`);
     } else {
-      // 8-player bracket: top 2 from each group → semis
+      // Two groups: top 2 from each → semis → final
       const [a1, a2] = standA.map(s => s.pubkey);
       const [b1, b2] = standB.map(s => s.pubkey);
       const semi1 = makeMatch("semi1", "semi", undefined, a1, b2, t.id);

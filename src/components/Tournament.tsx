@@ -198,12 +198,12 @@ function MatchCard({
   );
 }
 
-function StandingsTable({ standings, group, profiles }: { standings: Standing[]; group: string; profiles: Map<string, NostrProfile> }) {
-  const medals = ["🥇", "🥈", "  ", "  "];
+function StandingsTable({ standings, label, profiles }: { standings: Standing[]; label: string; profiles: Map<string, NostrProfile> }) {
+  const medal = (i: number) => i === 0 ? "🥇" : i === 1 ? "🥈" : "  ";
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 12, letterSpacing: 1, color: "var(--gold)", marginBottom: 8 }}>
-        GRUPO {group}
+        {label}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "5px 12px", fontSize: 11, fontFamily: "var(--condensed)", alignItems: "center" }}>
         <span style={{ color: "var(--muted)", fontWeight: 700 }}>Jugador</span>
@@ -214,7 +214,7 @@ function StandingsTable({ standings, group, profiles }: { standings: Standing[];
         {standings.map((s, i) => (
           <>
             <div key={s.pubkey + "n"} style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
-              <span style={{ fontSize: 13 }}>{medals[i]}</span>
+              <span style={{ fontSize: 13 }}>{medal(i)}</span>
               <Avatar pubkey={s.pubkey} profiles={profiles} size={22} />
               <span style={{ color: i < 2 ? "var(--ink)" : "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 <PlayerName pubkey={s.pubkey} profiles={profiles} />
@@ -243,7 +243,7 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
   const [claimingPrize,  setClaimingPrize]  = useState(false);
   const [prizeClaimed,   setPrizeClaimed]   = useState(false);
   const [scheduledDateTime, setScheduledDateTime] = useState(defaultScheduledDateTime);
-  const [selectedMaxPlayers, setSelectedMaxPlayers] = useState<4 | 8>(8);
+  const [selectedMaxPlayers, setSelectedMaxPlayers] = useState(8);
 
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [tab,            setTab]            = useState<"groups" | "bracket" | "matches">("groups");
@@ -647,33 +647,18 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
                     <div style={{ marginBottom: 10 }}>
                       <div style={{ marginBottom: 10 }}>
                         <label style={{ display: "block", fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", fontWeight: 700, marginBottom: 6 }}>
-                          👥 Cantidad de jugadores
+                          👥 Cantidad de jugadores (mínimo 4)
                         </label>
-                        <div style={{ display: "flex", gap: 8 }}>
-                          {([4, 8] as const).map(n => (
-                            <button
-                              key={n}
-                              type="button"
-                              onClick={() => setSelectedMaxPlayers(n)}
-                              style={{
-                                padding: "6px 16px",
-                                borderRadius: 6,
-                                border: selectedMaxPlayers === n ? "1.5px solid var(--gold)" : "1px solid var(--line)",
-                                background: selectedMaxPlayers === n ? "rgba(232,185,35,.15)" : "var(--panel2)",
-                                color: selectedMaxPlayers === n ? "var(--gold)" : "var(--muted)",
-                                fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 13,
-                                cursor: "pointer",
-                              }}
-                            >
-                              {n} jugadores
-                            </button>
-                          ))}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <button type="button" onClick={() => setSelectedMaxPlayers(n => Math.max(4, n - 1))} style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--line)", background: "var(--panel2)", color: "var(--ink)", fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 16, cursor: "pointer", display: "grid", placeItems: "center" }}>−</button>
+                          <span style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 20, color: "var(--gold)", minWidth: 28, textAlign: "center" }}>{selectedMaxPlayers}</span>
+                          <button type="button" onClick={() => setSelectedMaxPlayers(n => n + 1)} style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--line)", background: "var(--panel2)", color: "var(--ink)", fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 16, cursor: "pointer", display: "grid", placeItems: "center" }}>+</button>
                         </div>
-                        {selectedMaxPlayers === 4 && (
-                          <div style={{ marginTop: 5, fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)" }}>
-                            2 zonas de 2 · el ganador de cada zona va directo a la final
-                          </div>
-                        )}
+                        <div style={{ marginTop: 5, fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)" }}>
+                          {selectedMaxPlayers <= 5
+                            ? `Todos contra todos · los 2 mejores juegan la final`
+                            : `2 zonas de ${Math.ceil(selectedMaxPlayers / 2)}+${Math.floor(selectedMaxPlayers / 2)} · top 2 de cada zona → semifinales → final`}
+                        </div>
                       </div>
                       <label style={{ display: "block", fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", fontWeight: 700, marginBottom: 4 }}>
                         📅 Elegí cuándo arranca el torneo (los demás lo van a ver al inscribirse)
@@ -838,34 +823,40 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
       {isLivePhase && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Group stage */}
-          {data.status === "group_stage" && (
-            <>
-              {(["A", "B"] as const).map(g => {
-                const groupMatches = data.matches.filter(m => m.group === g);
-                const otherMatches = groupMatches.filter(m => m.player1 !== myPubkey && m.player2 !== myPubkey);
-                return (
-                  <div key={g}>
-                    <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--muted)", marginBottom: 6 }}>
-                      GRUPO {g}
+          {data.status === "group_stage" && (() => {
+            const singleGroup = !data.groups || data.groups.B.length === 0;
+            const groups: Array<{ key: string; label: string }> = singleGroup
+              ? [{ key: "A", label: "TODOS LOS PARTIDOS" }]
+              : [{ key: "A", label: "GRUPO A" }, { key: "B", label: "GRUPO B" }];
+            return (
+              <>
+                {groups.map(({ key, label }) => {
+                  const groupMatches = data.matches.filter(m => m.group === key);
+                  const otherMatches = groupMatches.filter(m => m.player1 !== myPubkey && m.player2 !== myPubkey);
+                  return (
+                    <div key={key}>
+                      <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--muted)", marginBottom: 6 }}>
+                        {label}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {otherMatches.map(m => (
+                          <MatchCard key={m.id} match={m} profiles={profiles}
+                            expanded={expandedId === m.id}
+                            onToggle={() => setExpandedId(v => v === m.id ? null : m.id)}
+                          />
+                        ))}
+                        {otherMatches.length === 0 && (
+                          <div style={{ fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", padding: "4px 0" }}>
+                            Todos tus partidos se muestran arriba
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {otherMatches.map(m => (
-                        <MatchCard key={m.id} match={m} profiles={profiles}
-                          expanded={expandedId === m.id}
-                          onToggle={() => setExpandedId(v => v === m.id ? null : m.id)}
-                        />
-                      ))}
-                      {otherMatches.length === 0 && (
-                        <div style={{ fontSize: 10, color: "var(--muted)", fontFamily: "var(--condensed)", padding: "4px 0" }}>
-                          Todos tus partidos en este grupo se muestran arriba
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </>
-          )}
+                  );
+                })}
+              </>
+            );
+          })()}
 
           {/* Semi / Final phase: show all matches */}
           {(data.status === "semi" || data.status === "final") && (
@@ -885,33 +876,33 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
       )}
 
       {/* ── Partial group standings (during group stage) ──────────── */}
-      {data.status === "group_stage" && data.groups && (
-        <div>
-          <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--muted)", marginBottom: 8 }}>
-            CLASIFICACIÓN PARCIAL
+      {data.status === "group_stage" && data.groups && (() => {
+        const singleGroup = data.groups.B.length === 0;
+        return (
+          <div>
+            <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--muted)", marginBottom: 8 }}>
+              CLASIFICACIÓN PARCIAL
+            </div>
+            {data.standings ? (
+              <>
+                <StandingsTable standings={data.standings.A} label={singleGroup ? "CLASIFICACIÓN" : "GRUPO A"} profiles={profiles} />
+                {!singleGroup && <StandingsTable standings={data.standings.B} label="GRUPO B" profiles={profiles} />}
+              </>
+            ) : (
+              (() => {
+                const standA = computePartialStandings(data.groups!.A, data.matches.filter(m => m.group === "A"));
+                const standB = singleGroup ? [] : computePartialStandings(data.groups!.B, data.matches.filter(m => m.group === "B"));
+                return (
+                  <>
+                    <StandingsTable standings={standA} label={singleGroup ? "CLASIFICACIÓN" : "GRUPO A"} profiles={profiles} />
+                    {!singleGroup && <StandingsTable standings={standB} label="GRUPO B" profiles={profiles} />}
+                  </>
+                );
+              })()
+            )}
           </div>
-          {data.standings ? (
-            <>
-              <StandingsTable standings={data.standings.A} group="A" profiles={profiles} />
-              <StandingsTable standings={data.standings.B} group="B" profiles={profiles} />
-            </>
-          ) : (
-            // Derive from completed group matches
-            (() => {
-              const groupA = data.groups!.A;
-              const groupB = data.groups!.B;
-              const standA = computePartialStandings(groupA, data.matches.filter(m => m.group === "A"));
-              const standB = computePartialStandings(groupB, data.matches.filter(m => m.group === "B"));
-              return (
-                <>
-                  <StandingsTable standings={standA} group="A" profiles={profiles} />
-                  <StandingsTable standings={standB} group="B" profiles={profiles} />
-                </>
-              );
-            })()
-          )}
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Results (finished) ────────────────────────────────────── */}
       {data.status === "finished" && (
@@ -932,24 +923,29 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
             ))}
           </div>
 
-          {tab === "groups" && data.standings && (
-            <div>
-              <StandingsTable standings={data.standings.A} group="A" profiles={profiles} />
-              <StandingsTable standings={data.standings.B} group="B" profiles={profiles} />
-            </div>
-          )}
-
-          {tab === "bracket" && semi1 && semi2 && finalMatch && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {tab === "groups" && data.standings && (() => {
+            const singleGroup = data.groups?.B.length === 0;
+            return (
               <div>
-                <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--muted)", marginBottom: 8 }}>
-                  SEMIFINALES
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <MatchCard match={semi1} profiles={profiles} expanded={expandedId === "semi1"} onToggle={() => setExpandedId(v => v === "semi1" ? null : "semi1")} />
-                  <MatchCard match={semi2} profiles={profiles} expanded={expandedId === "semi2"} onToggle={() => setExpandedId(v => v === "semi2" ? null : "semi2")} />
-                </div>
+                <StandingsTable standings={data.standings.A} label={singleGroup ? "CLASIFICACIÓN" : "GRUPO A"} profiles={profiles} />
+                {!singleGroup && <StandingsTable standings={data.standings.B} label="GRUPO B" profiles={profiles} />}
               </div>
+            );
+          })()}
+
+          {tab === "bracket" && finalMatch && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {semi1 && semi2 && (
+                <div>
+                  <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--muted)", marginBottom: 8 }}>
+                    SEMIFINALES
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <MatchCard match={semi1} profiles={profiles} expanded={expandedId === "semi1"} onToggle={() => setExpandedId(v => v === "semi1" ? null : "semi1")} />
+                    <MatchCard match={semi2} profiles={profiles} expanded={expandedId === "semi2"} onToggle={() => setExpandedId(v => v === "semi2" ? null : "semi2")} />
+                  </div>
+                </div>
+              )}
               <div>
                 <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--gold)", marginBottom: 8 }}>
                   FINAL
@@ -959,22 +955,28 @@ export function Tournament({ identity, notify = () => {} }: { identity: Identity
             </div>
           )}
 
-          {tab === "matches" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {(["A", "B"] as const).map(g => (
-                <div key={g}>
-                  <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--muted)", marginBottom: 6 }}>
-                    GRUPO {g}
+          {tab === "matches" && (() => {
+            const singleGroup = !data.groups || data.groups.B.length === 0;
+            const groups: Array<{ key: string; label: string }> = singleGroup
+              ? [{ key: "A", label: "FASE DE GRUPOS" }]
+              : [{ key: "A", label: "GRUPO A" }, { key: "B", label: "GRUPO B" }];
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {groups.map(({ key, label }) => (
+                  <div key={key}>
+                    <div style={{ fontFamily: "var(--condensed)", fontWeight: 900, fontSize: 11, letterSpacing: 1, color: "var(--muted)", marginBottom: 6 }}>
+                      {label}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {data.matches.filter(m => m.group === key).map(m => (
+                        <MatchCard key={m.id} match={m} profiles={profiles} expanded={expandedId === m.id} onToggle={() => setExpandedId(v => v === m.id ? null : m.id)} />
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {data.matches.filter(m => m.group === g).map(m => (
-                      <MatchCard key={m.id} match={m} profiles={profiles} expanded={expandedId === m.id} onToggle={() => setExpandedId(v => v === m.id ? null : m.id)} />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            );
+          })()}
         </>
       )}
 
