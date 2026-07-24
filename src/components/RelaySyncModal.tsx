@@ -126,7 +126,7 @@ function RelayRow({ r, removable, onRemove }: { r: RelayReport; removable: boole
 
 export function RelaySyncModal({ pubkey, onClose }: { pubkey: string; onClose: () => void }) {
   const [extraRelays, setExtraRelays] = useState<string[]>(getExtraRelays());
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState("wss://relay.lacrypta.ar");
   const [inputError, setInputError] = useState(false);
   const [running, setRunning] = useState(false);
   const [runMode, setRunMode] = useState<SyncMode>("full");
@@ -288,7 +288,7 @@ export function RelaySyncModal({ pubkey, onClose }: { pubkey: string; onClose: (
                 value={input}
                 onChange={(e) => { setInput(e.target.value); setInputError(false); }}
                 onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-                placeholder="wss://otro.relay.com"
+                placeholder="wss://relay.lacrypta.ar"
                 style={{
                   flex: 1, background: "var(--panel2)",
                   border: `1px solid ${inputError ? "#ef4444" : "var(--line)"}`,
